@@ -19,7 +19,7 @@ def conectarAoBanco():
         print(f"Erro ao conectar ao banco de dados: {error}")
         return None
 
-# Função para consultar grupos
+# grupo
 def consultarGrupos(conexao):
     try:
         cursor = conexao.cursor()
@@ -33,6 +33,8 @@ def consultarGrupos(conexao):
         print(f"Erro ao consultar grupos: {error}")
     finally:
         cursor.close()
+
+#produto
 
 def consultarProdutos(conexao):
     try:
@@ -48,11 +50,98 @@ def consultarProdutos(conexao):
     finally:
         cursor.close()
 
+
+#similares
+def consultarSimilares(conexao):
+    try:
+        cursor = conexao.cursor()
+        cursor.execute("SELECT * FROM similares;")
+        similares = cursor.fetchall()
+        
+        print("Produtos similares encontrados:")
+        for similar in similares:
+            print(similar)
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao consultar similares: {error}")
+    finally:
+        cursor.close()
+
+
+#categoria
+
+def consultarCategorias(conexao):
+    try:
+        cursor = conexao.cursor()
+        cursor.execute("SELECT * FROM categoria;")
+        categorias = cursor.fetchall()
+        
+        print("Categorias encontradas:")
+        for categoria in categorias:
+            print(categoria)
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao consultar categorias: {error}")
+    finally:
+        cursor.close()
+
+#revieww
+
+def consultarReviews(conexao):
+    try:
+        cursor = conexao.cursor()
+        cursor.execute("SELECT * FROM review;")
+        reviews = cursor.fetchall()
+        
+        print("Reviews encontrados:")
+        for review in reviews:
+            print(review)
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao consultar reviews: {error}")
+    finally:
+        cursor.close()
+
+#usuario
+
+def consultarUsuarios(conexao):
+    try:
+        cursor = conexao.cursor()
+        cursor.execute("SELECT * FROM \"user\";")
+        usuarios = cursor.fetchall()
+        
+        print("Usuários encontrados:")
+        for usuario in usuarios:
+            print(usuario)
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao consultar usuários: {error}")
+    finally:
+        cursor.close()
+
+#produto categoria
+
+def consultarProdutoCategoria(conexao):
+    try:
+        cursor = conexao.cursor()
+        cursor.execute("SELECT * FROM ProdutoCategoria;")
+        produtos_categoria = cursor.fetchall()
+        
+        print("Relações de produtos e categorias encontradas:")
+        for pc in produtos_categoria:
+            print(pc)
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao consultar produtos e categorias: {error}")
+    finally:
+        cursor.close()
+
+
 def main():
     conn = conectarAoBanco()
     if conn:
         consultarGrupos(conn)
         consultarProdutos(conn)
+        consultarSimilares(conn)
+        consultarCategorias(conn)
+        consultarReviews(conn)
+        consultarUsuarios(conn)
+        consultarProdutoCategoria(conn)
         conn.close()
 
 # Ponto de entrada do script
