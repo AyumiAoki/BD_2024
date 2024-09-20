@@ -108,7 +108,7 @@ def inserirDados(conexao, dados):
             ON CONFLICT (name) DO NOTHING
         ''',
         "produto": '''
-            INSERT INTO produto(id, asin, title, idgroup, salesrank)
+            INSERT INTO produto(id, asin, title, salesrank, idgroup)
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (asin) DO NOTHING
         ''',
@@ -145,13 +145,12 @@ def inserirDados(conexao, dados):
         # Inserir grupos
         if dados["grupo"]:
             # Converte o set em uma lista de tuplas
-            grupos_para_inserir = [(grupo,) for grupo in dados["grupo"]]
-            print(f"Inserindo grupos: {grupos_para_inserir}")
-            cursor.executemany(insert_commands["grupo"], grupos_para_inserir)
+            gruposParaInserir = [(grupo,) for grupo in dados["grupo"]]
+            cursor.executemany(insert_commands["grupo"], gruposParaInserir)
 
-        # # Inserir produtos
-        # if dados["produto"]:
-        #     cursor.executemany(insert_commands["produto"], dados["produto"])
+        # Inserir produtos
+        if dados["produto"]:
+            cursor.executemany(insert_commands["produto"], dados["produto"])
 
         # # Inserir similares
         # if dados["similares"]:
