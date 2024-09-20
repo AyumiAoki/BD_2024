@@ -1,6 +1,7 @@
 import os
 import psycopg2
 from psycopg2 import OperationalError
+import re
 
 # Função para conectar ao banco de dados
 def conectarAoBanco():
@@ -21,6 +22,7 @@ def conectarAoBanco():
         print(f"Erro ao conectar ao banco de dados: {error}")
         return None
 
+
 # Função para criar o esquema de tabelas
 def criarEsquema(conexao):
     try:
@@ -29,8 +31,7 @@ def criarEsquema(conexao):
         # Criar a tabela grupo
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS grupo (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(32) UNIQUE
+                name VARCHAR(30) PRIMARY KEY
             );
         ''')
 
@@ -41,7 +42,7 @@ def criarEsquema(conexao):
                 asin VARCHAR(10) UNIQUE NOT NULL,
                 title VARCHAR(512),
                 salesrank INT UNIQUE,
-                idgroup INT,
+                idgroup VARCHAR(30),
                 CONSTRAINT fk_group FOREIGN KEY(idgroup) REFERENCES grupo(id)
             );
         ''')
@@ -55,9 +56,9 @@ def criarEsquema(conexao):
             );
         ''')
 
-        # Criar a tabela category
+        # Criar a tabela categoria
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS category (
+            CREATE TABLE IF NOT EXISTS categoria (
                 id INT PRIMARY KEY,
                 name VARCHAR(255),
                 idPai INT
@@ -84,9 +85,9 @@ def criarEsquema(conexao):
             );
         ''')
 
-        # Criar a tabela ProductCategory
+        # Criar a tabela ProdutoCategoria
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS ProductCategory (
+            CREATE TABLE IF NOT EXISTS ProdutoCategoria (
                 idProduct INT,
                 idCategory INT,
                 PRIMARY KEY (idProduct, idCategory)
@@ -103,7 +104,144 @@ def criarEsquema(conexao):
             cursor.close()
             conexao.close()
 
+
+# Função para inserir dados em lotes
+def inserirDados(conexao, dados):
+    # Aqui você pode comentar as inserções para apenas visualizar os dados
+    print("\n=== Dados Prontos para Inserção ===")
+    print("\n=================================\n")
+    print(f"Grupos: {dados['grupo']}")
+    print("\n=================================\n")
+    print(f"Produtos: {dados['produto']}")
+    print("\n=================================\n")
+    print(f"Similares: {dados['similares']}")
+    print("\n=================================\n")
+    print(f"Categorias: {dados['categoria']}")
+    print("\n=================================\n")
+    print(f"Reviews: {dados['review']}")
+    print("\n=================================\n")
+    print(f"Usuários: {dados['user']}")
+    print("\n=================================\n")
+    print(f"Produto-Categoria: {dados['produtoCategoria']}")
+    print("\n=================================\n")
+    
+
+# Função para processar arquivo e carregar dados em chunks
+def processarArquivo(filepath, conexao):
+    # Inicializar estrutura de dados para chunking
+    chunk_data = {
+        "grupo": set(),
+        "produto": [],
+        "similares": set(),
+        "categoria": [],
+        "review": [],
+        "user": set(),
+        "produtoCategoria": set()
+    }
+
+    product_data = None
+    padrao_categoria = re.compile(r"^(.+)\[(\d+)]$")
+    padrao_review = re.compile(r"(\d{4}-\d{1,2}-\d{1,2})\s+customer:\s+(\w+)\s+rating:\s+(\d+)\s+votes:\s+(\d+)\s+helpful:\s+(\d+)")
+
+    with open(filepath, 'r', encoding='utf-8') as file:
+        for line in file:
+            info = line.split()
+            if len(info) < 1:
+                continue
+
+            # Processar informações de produto
+            if info[0].startswith('Id:'):
+                if product_data:
+                    chunk_data['produto'].append(product_data)
+                product_data = [int(info[1]), None, None, None, None]  # id, asin, title, salesrank, idgroup
+            elif info[0].startswith('ASIN:'):
+                product_data[1] = info[1]
+            elif info[0].startswith('title:'):
+                product_data[2] = " ".join(info[1:])
+            elif info[0].startswith('group:'):
+                group_name = " ".join(info[1:])
+                chunk_data['grupo'].add((group_name))
+                product_data[4] = group_name
+            elif info[0].startswith('salesrank:'):
+                product_data[3] = int(info[1])
+
+            # Processar categorias
+            elif info[0].startswith('categories:'):
+                total_categories = int(info[1])
+                categoria_pai = None  # Inicializa a variável para armazenar a categoria pai
+                for _ in range(total_categories):
+                    line = next(file)
+                    categorias = line.split('|')
+                    for i, cat in enumerate(categorias):
+                        match = padrao_categoria.match(cat)
+                        if match:
+                            category_name = match.group(1).strip()
+                            category_id = int(match.group(2).strip())
+                            if i == 0:
+                                # A primeira categoria não tem pai, é a raiz
+                                chunk_data['categoria'].append((category_id, category_name, None))  # Sem pai (None)
+                            else:
+                                # As próximas categorias são filhas da categoria anterior
+                                chunk_data['categoria'].append((category_id, category_name, categoria_pai))
+                            # Atualiza a categoria pai para a próxima iteração
+                            categoria_pai = category_id
+                            # Associar o produto à categoria, mas usando set() para evitar duplicatas
+                            chunk_data['produtoCategoria'].add((product_data[0], category_id))
+
+            # Processar similares
+            elif info[0].startswith('similar:'):
+                count_similar = int(info[1])
+                for i in range(count_similar):
+                    chunk_data['similares'].add((product_data[1], info[2 + i]))
+
+            # Processar reviews
+            elif info[0].startswith('reviews:'):
+                # Extrai o total de reviews a partir da linha
+                total_reviews = int(info[2])  # O número total de reviews vem após 'total:'
+
+                # Agora processa cada review individual
+                for _ in range(total_reviews):
+                    review_line = next(file).strip()  # Lê a linha da review e remove espaços em branco nas bordas
+
+                    # Divide a linha usando espaços simples como delimitadores
+                    review_info = review_line.split()
+
+                    # Extrai os campos com base em sua posição relativa
+                    review_date = review_info[0]  # A primeira parte é a data (ex: "2000-7-28")
+                    review_user = review_info[2]  # Após "customer:", o próximo campo é o ID do usuário (ex: "A2JW67OY8U6HHK")
+                    review_rating = int(review_info[4])  # Após "rating:", o próximo campo é o valor do rating (ex: 5)
+                    review_votes = int(review_info[6])  # Após "votes:", o próximo campo é o número de votos (ex: 10)
+                    review_helpful = int(review_info[8])  # Após "helpful:", o próximo campo é o número de votos úteis (ex: 9)
+
+                    # Adiciona o usuário à lista de usuários
+                    chunk_data['user'].add((review_user,))
+
+                    # Adiciona a review à lista de reviews
+                    chunk_data['review'].append((
+                        review_user,    # ID do usuário
+                        product_data[0],  # ID do produto (product_data[0] contém o ID do produto)
+                        review_date,    # Data da review
+                        review_rating,  # Rating da review
+                        review_votes,   # Número de votos
+                        review_helpful  # Votos úteis
+                    ))
+
+        # Inserir o último produto
+        if product_data:
+            chunk_data['produto'].append(product_data)
+
+        # Visualizar os dados carregados antes da inserção
+        inserirDados(conexao, chunk_data)
+
+
 # Função principal
 def main():
     conn = conectarAoBanco()
-    criarEsquema(conn)
+    if conn:
+        filepath = './teste.txt'
+        processarArquivo(filepath, conn)
+        conn.close()
+
+# Ponto de entrada do script
+if __name__ == '__main__':
+    main()
