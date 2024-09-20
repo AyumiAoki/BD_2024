@@ -14,7 +14,6 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_
 # Função para conectar ao banco de dados
 def conectarAoBanco():
     try:
-        # Conectar ao banco de dados PostgreSQL
         conexao = psycopg2.connect(
             host=os.getenv('DB_HOST', 'localhost'),
             database=os.getenv('DB_NAME', 'products_amazon'),
