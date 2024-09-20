@@ -168,9 +168,9 @@ def inserirDados(conexao, dados):
         if dados["user"]:
             cursor.executemany(insert_commands["user"], dados["user"])
 
-        # # Inserir reviews
-        # if dados["review"]:
-        #     cursor.executemany(insert_commands["review"], dados["review"])
+        # Inserir reviews
+        if dados["review"]:
+            cursor.executemany(insert_commands["review"], dados["review"])
 
         conexao.commit()
         print("Dados inseridos com sucesso.")
