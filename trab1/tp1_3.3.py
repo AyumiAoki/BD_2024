@@ -14,6 +14,7 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_
 # Função para conectar ao banco de dados
 def conectarAoBanco():
     try:
+        # Conectar ao banco de dados PostgreSQL
         conexao = psycopg2.connect(
             host=os.getenv('DB_HOST', 'localhost'),
             database=os.getenv('DB_NAME', 'products_amazon'),
@@ -419,6 +420,125 @@ def mostrar_evolucao_avaliacoes(n_clicks, id_product):
     # Caso não tenha sido clicado ainda, ocultar o gráfico
     return {}, {"display": "none"}, "Insira o ID do produto e clique em OK para ver a evolução das avaliações."
 
+def consulta_d(group_name):
+    global conn
+    sql = '''WITH RankedProducts AS (
+                 SELECT grupo.name as group_name, ROW_NUMBER() OVER (PARTITION BY produto.idgroup ORDER BY produto.salesrank) AS ranking, produto.*
+                 FROM produto
+                 INNER JOIN grupo ON produto.idgroup = grupo.name
+                 WHERE produto.salesrank > 0 AND grupo.name = %s
+             )
+             SELECT *
+             FROM RankedProducts
+             WHERE ranking <= 10
+             ORDER BY group_name, ranking;'''
+
+    try:
+        cur = conn.cursor()
+        cur.execute(sql, (group_name,))
+        rows = cur.fetchall()
+        cur.close()
+
+        # Verificar e tratar os campos com base no tamanho da tupla
+        return [
+            {
+                "product_id": row[2] if len(row) > 2 else None,  # ID do produto ou None
+                "product_name": row[4] if len(row) > 4 else None,  # Nome do produto ou None
+                "salesrank": row[5] if len(row) > 5 else None  # Salesrank ou None
+            }
+            for row in rows
+        ]
+
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao realizar consulta: {error}")
+        if conn:
+            conn.rollback()
+        return []
+
+def carregar_grupos():
+    global conn
+    sql = 'SELECT name FROM "grupo" ORDER BY name;'  # Certifique-se de que "grupo" é o nome correto da tabela
+    try:
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
+        cur.close()
+
+        # Como só temos uma coluna 'name', row[0] será o nome do grupo
+        return [{"label": row[0], "value": row[0]} for row in rows]
+
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao carregar grupos: {error}")
+        return []
+
+def consulta_d_layout():
+    return dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
+                        width=2,
+                        style={"textAlign": "left"}
+                    ),
+                    dbc.Col(
+                        html.H1("Consulta D - Top 10 Produtos por Grupo", style={"margin-bottom": "2rem", "margin-top": "1rem"}),
+                        width=8,
+                        style={"textAlign": "center"}
+                    ),
+                ],
+                className="mt-4 mb-4"
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Dropdown(
+                            id="dropdown-grupo",
+                            options=carregar_grupos(),
+                            placeholder="Selecione um grupo de produtos",
+                        ),
+                        width=6
+                    ),
+                ],
+                justify="center",
+                className="mb-4"
+            ),
+            html.Div(id="tabela-produtos"),
+            html.Div(id="mensagem-erro-d", style={"textAlign": "center", "color": "red"})
+        ]
+    )
+
+@app.callback(
+    [Output("tabela-produtos", "children"), Output("mensagem-erro-d", "children")],
+    Input("dropdown-grupo", "value")
+)
+def mostrar_produtos_por_grupo(id_group):
+    if id_group:
+        produtos = consulta_d(id_group)
+
+        if not produtos:
+            return None, "Nenhum produto encontrado para o grupo selecionado."
+
+        tabela = dbc.Table(
+            [
+                html.Thead(
+                    html.Tr([html.Th("ID do Produto"), html.Th("Nome do Produto"), html.Th("Classificação")])
+                ),
+                html.Tbody([
+                    html.Tr([html.Td(produto["product_id"]), html.Td(produto["product_name"]), html.Td(produto["salesrank"])]) 
+                    for produto in produtos
+                ])
+            ],
+            bordered=True,
+            hover=True,
+            responsive=True,
+            striped=True,
+        )
+
+        return tabela, ""
+
+    return None, "Selecione um grupo de produtos."
+
 
 # Função para criar um card (aqui fica o layout dos cards)
 def criarCard(title, subtitle, text, link1, href_link):
@@ -431,6 +551,347 @@ def criarCard(title, subtitle, text, link1, href_link):
         ]),
         style={"height": "12rem"}  # Definir altura padrão para todos os cards
     )
+
+def consulta_e():
+    global conn
+    sql = '''
+        with highest_helpful as (
+            select round(avg(helpful), 4) as media_util, idproduct
+            from review
+            where rating >= 4
+            group by idproduct
+            order by avg(helpful) desc
+            limit 10
+        )
+        select produto.id, produto.asin, produto.title, "grupo".name, produto.salesrank, highest_helpful.media_util
+        from produto
+        join highest_helpful on produto.id = highest_helpful.idproduct
+        join "grupo" on produto.idgroup = "grupo".name
+        order by highest_helpful.media_util desc;
+    '''
+
+    try:
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
+        cur.close()
+
+        # Formatar o resultado da consulta em uma lista de dicionários
+        return [
+            {
+                "product_id": row[0],
+                "asin": row[1],
+                "title": row[2],
+                "group_name": row[3],
+                "salesrank": row[4],
+                "average_helpful": row[5]
+            }
+            for row in rows
+        ]
+
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao realizar consulta: {error}")
+        if conn:
+            conn.rollback()
+        return []
+
+
+def consulta_e_layout():
+    return dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
+                        width=2,
+                        style={"textAlign": "left"}
+                    ),
+                    dbc.Col(
+                        html.H1(
+                            "Consulta E - Produtos com as Maiores Médias de Avaliações Úteis Positivas", 
+                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
+                        ),
+                        width=8,
+                        style={"textAlign": "center"}
+                    ),
+                ],
+                className="mt-4 mb-4"
+            ),
+            # Aqui criamos uma tabela onde os resultados serão exibidos
+            html.Div(id="tabela-produtos-e")
+        ]
+    )
+
+def consulta_e_layout():
+    return dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
+                        width=2,
+                        style={"textAlign": "left"}
+                    ),
+                    dbc.Col(
+                        html.H1(
+                            "Consulta E - Produtos com as Maiores Médias de Avaliações Úteis Positivas", 
+                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
+                        ),
+                        width=8,
+                        style={"textAlign": "center"}
+                    ),
+                ],
+                className="mt-4 mb-4"
+            ),
+            # Aqui criamos uma tabela onde os resultados serão exibidos
+            html.Div(id="tabela-produtos-e")
+        ]
+    )
+
+@app.callback(
+    Output("tabela-produtos-e", "children"),
+    Input("url", "pathname")
+)
+def mostrar_produtos_e(pathname):
+    if pathname == '/consulta-e':
+        produtos = consulta_e()
+
+        if not produtos:
+            return html.P("Nenhum produto encontrado com médias de avaliações úteis positivas.", style={"textAlign": "center", "color": "red"})
+
+        # Criar a tabela com os produtos e suas médias de avaliações úteis
+        tabela = dbc.Table(
+            [
+                html.Thead(
+                    html.Tr([html.Th("ID do Produto"), html.Th("ASIN"), html.Th("Título"), html.Th("Grupo"), html.Th("Salesrank"), html.Th("Média de Avaliações Úteis")])
+                ),
+                html.Tbody([
+                    html.Tr([html.Td(produto["product_id"]), html.Td(produto["asin"]), html.Td(produto["title"]), html.Td(produto["group_name"]), html.Td(produto["salesrank"]), html.Td(produto["average_helpful"])])
+                    for produto in produtos
+                ])
+            ],
+            bordered=True,
+            hover=True,
+            responsive=True,
+            striped=True,
+        )
+
+        return tabela
+
+    return None
+
+def consulta_f():
+    global conn
+    sql = '''
+        with id_categories as (
+            select round(avg(review.helpful), 4) as media_helpful, produto.idgroup as id_category
+            from review
+            inner join produto on review.idproduct = produto.id
+            where review.rating >= 4
+            group by produto.idgroup
+            order by avg(review.helpful) desc
+            limit 5
+        )
+        select grupo.name, id_categories.media_helpful
+        from grupo
+        join id_categories on grupo.name = id_categories.id_category
+        order by id_categories.media_helpful desc;
+    '''
+
+    try:
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
+        cur.close()
+
+        # Formatar os resultados em uma lista de dicionários
+        return [
+            {
+                "categoria": row[0],  # Nome do grupo (categoria)
+                "media_helpful": row[1]  # Média de avaliações úteis
+            }
+            for row in rows
+        ]
+
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao realizar consulta: {error}")
+        if conn:
+            conn.rollback()
+        return []
+
+def consulta_f_layout():
+    return dbc.Container(
+        [
+            # Cabeçalho da página com título
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
+                        width=2,
+                        style={"textAlign": "left"}
+                    ),
+                    dbc.Col(
+                        html.H1(
+                            "Consulta F - 5 Categorias com a Maior Média de Avaliações Úteis Positivas", 
+                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
+                        ),
+                        width=8,
+                        style={"textAlign": "center"}
+                    ),
+                ],
+                className="mt-4 mb-4"
+            ),
+
+            # Área onde a tabela será exibida
+            html.Div(id="tabela-categorias-f")
+        ]
+    )
+
+@app.callback(
+    Output("tabela-categorias-f", "children"),
+    Input("url", "pathname")
+)
+def mostrar_categorias_f(pathname):
+    if pathname == '/consulta-f':
+        categorias = consulta_f()
+
+        if not categorias:
+            return html.P("Nenhuma categoria encontrada com médias de avaliações úteis positivas.", style={"textAlign": "center", "color": "red"})
+
+        # Criar a tabela com os resultados
+        tabela = dbc.Table(
+            [
+                html.Thead(
+                    html.Tr([html.Th("Categoria"), html.Th("Média de Avaliações Úteis")])
+                ),
+                html.Tbody([
+                    html.Tr([html.Td(categoria["categoria"]), html.Td(categoria["media_helpful"])])
+                    for categoria in categorias
+                ])
+            ],
+            bordered=True,
+            hover=True,
+            responsive=True,
+            striped=True,
+        )
+
+        return tabela
+
+    return None
+
+
+def consulta_g(grupo_selecionado):
+    global conn
+    sql = '''
+        with RankingGroup as (
+            select grupo.name as group_name, review.iduser, count(*) as num_comentarios, 
+                   row_number() over (partition by grupo.name order by count(*) desc) as ranking
+            from review
+            join produto on review.idproduct = produto.id
+            join grupo on produto.idgroup = grupo.name
+            group by review.iduser, grupo.name
+        )
+        select * 
+        from RankingGroup 
+        where ranking <= 10 
+        and group_name = %s
+        order by ranking;
+    '''
+
+    try:
+        cur = conn.cursor()
+        cur.execute(sql, (grupo_selecionado,))
+        rows = cur.fetchall()
+        cur.close()
+
+        # Formatar os resultados em uma lista de dicionários
+        return [
+            {
+                "group_name": row[0],
+                "cod_customer": row[1],
+                "num_comentarios": row[2],
+                "ranking": row[3]
+            }
+            for row in rows
+        ]
+
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao realizar consulta: {error}")
+        if conn:
+            conn.rollback()
+        return []
+
+def consulta_g_layout():
+    return dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
+                        width=2,
+                        style={"textAlign": "left"}
+                    ),
+                    dbc.Col(
+                        html.H1(
+                            "Consulta G - Top 10 Clientes por Grupo de Produto", 
+                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
+                        ),
+                        width=8,
+                        style={"textAlign": "center"}
+                    ),
+                ],
+                className="mt-4 mb-4"
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Dropdown(
+                            id="dropdown-grupo-g",
+                            options=carregar_grupos(),  # Função que carrega os grupos para o dropdown
+                            placeholder="Selecione um grupo de produtos",
+                        ),
+                        width=6
+                    ),
+                ],
+                justify="center",
+                className="mb-4"
+            ),
+            html.Div(id="tabela-clientes-g")
+        ]
+    )
+
+@app.callback(
+    Output("tabela-clientes-g", "children"),
+    Input("dropdown-grupo-g", "value")
+)
+def mostrar_clientes_g(grupo_selecionado):
+    if grupo_selecionado:
+        clientes = consulta_g(grupo_selecionado)
+
+        if not clientes:
+            return html.P(f"Nenhum cliente encontrado para o grupo {grupo_selecionado}.", style={"textAlign": "center", "color": "red"})
+
+        # Exibir os resultados em uma tabela
+        tabela = dbc.Table(
+            [
+                html.Thead(
+                    html.Tr([html.Th("Nome do Grupo"), html.Th("Código do Cliente"), html.Th("Número de Comentários"), html.Th("Ranking")])
+                ),
+                html.Tbody([
+                    html.Tr([html.Td(cliente["group_name"]), html.Td(cliente["cod_customer"]), html.Td(cliente["num_comentarios"]), html.Td(cliente["ranking"])])
+                    for cliente in clientes
+                ])
+            ],
+            bordered=True,
+            hover=True,
+            responsive=True,
+            striped=True,
+        )
+
+        return tabela
+
+    return html.P("Selecione um grupo para ver os clientes.", style={"textAlign": "center"})
+
 
 # Página principal (dashboard com cards)
 def layout_principal():
@@ -475,6 +936,14 @@ def display_page(pathname):
         return consulta_b_layout()
     elif pathname == '/consulta-c':
         return consulta_c_layout()
+    elif pathname == '/consulta-d':
+        return consulta_d_layout()
+    elif pathname == '/consulta-e':
+        return consulta_e_layout()
+    elif pathname == '/consulta-f':
+        return consulta_f_layout()
+    elif pathname == '/consulta-g':
+        return consulta_g_layout()
     else:
         return layout_principal()
 
