@@ -1,11 +1,11 @@
 import os
 import psycopg2
 from psycopg2 import OperationalError
+from datetime import datetime, timedelta
 
 # Função para conectar ao banco de dados
 def conectarAoBanco():
     try:
-        # Conectar ao banco de dados PostgreSQL
         conexao = psycopg2.connect(
             host=os.getenv('DB_HOST', 'localhost'),
             database=os.getenv('DB_NAME', 'products_amazon'),
@@ -19,131 +19,104 @@ def conectarAoBanco():
         print(f"Erro ao conectar ao banco de dados: {error}")
         return None
 
-# grupo
-def consultarGrupos(conexao):
+# Dicionário com consultas SQL
+consultas = {
+    'grupos': "SELECT * FROM grupo;",
+    'produtos': "SELECT * FROM produto;",
+    'similares': "SELECT * FROM similares;",
+    'categorias': "SELECT * FROM categoria;",
+    'reviews': "SELECT * FROM review;",
+    'usuarios': "SELECT * FROM \"user\";",
+    'produtos_categoria': "SELECT * FROM ProdutoCategoria;",
+    'comentarios_por_produto': '''
+        SELECT idUser, data, rating, votes, helpful
+        FROM review
+        WHERE idProduct = %s
+        ORDER BY helpful DESC, rating DESC
+        LIMIT 5;
+    ''',
+    'comentarios_por_produto_menores': '''
+        SELECT idUser, data, rating, votes, helpful
+        FROM review
+        WHERE idProduct = %s
+        ORDER BY helpful DESC, rating ASC
+        LIMIT 5;
+    ''',
+    'produtos_similares_maiores_vendas': '''
+        SELECT sp.asinSimilar, p.title, p.salesrank
+        FROM similares sp
+        JOIN produto p ON p.asin = sp.asinSimilar
+        WHERE sp.asinPai = (SELECT asin FROM produto WHERE id = %s) AND p.salesrank < %s;
+    ''',
+    'evolucao_diaria_avaliacoes': '''
+        SELECT data, rating
+        FROM review
+        WHERE idProduct = %s
+        ORDER BY data;
+    '''
+}
+
+def executarConsulta(conexao, chave, *args):
     try:
         cursor = conexao.cursor()
-        cursor.execute("SELECT * FROM grupo;")
-        grupos = cursor.fetchall()
-        
-        print("Grupos encontrados:")
-        for grupo in grupos:
-            print(grupo)
+        consulta = consultas[chave]
+        cursor.execute(consulta, args)
+        return cursor.fetchall()
     except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao consultar grupos: {error}")
+        print(f"Erro ao consultar {chave}: {error}")
+        return None
     finally:
         cursor.close()
 
-#produto
+def consultarEvolucaoDiariaAvaliacoes(conexao, idProduto):
+    avaliacoes = executarConsulta(conexao, 'evolucao_diaria_avaliacoes', idProduto)
+    
+    if avaliacoes:
+        medias_diarias = {}
+        for data, rating in avaliacoes:
+            data = data.strftime('%Y-%m-%d')
+            if data not in medias_diarias:
+                medias_diarias[data] = {'soma': 0, 'count': 0}
+            medias_diarias[data]['soma'] += rating
+            medias_diarias[data]['count'] += 1
 
-def consultarProdutos(conexao):
-    try:
-        cursor = conexao.cursor()
-        cursor.execute("SELECT * FROM produto;")
-        produtos = cursor.fetchall()
+        medias_calculadas = {data: valores['soma'] / valores['count'] for data, valores in medias_diarias.items()}
         
-        print("Produtos encontrados:")
-        for produto in produtos:
-            print(produto)
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao consultar produtos: {error}")
-    finally:
-        cursor.close()
-
-
-#similares
-def consultarSimilares(conexao):
-    try:
-        cursor = conexao.cursor()
-        cursor.execute("SELECT * FROM similares;")
-        similares = cursor.fetchall()
-        
-        print("Produtos similares encontrados:")
-        for similar in similares:
-            print(similar)
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao consultar similares: {error}")
-    finally:
-        cursor.close()
-
-
-#categoria
-
-def consultarCategorias(conexao):
-    try:
-        cursor = conexao.cursor()
-        cursor.execute("SELECT * FROM categoria;")
-        categorias = cursor.fetchall()
-        
-        print("Categorias encontradas:")
-        for categoria in categorias:
-            print(categoria)
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao consultar categorias: {error}")
-    finally:
-        cursor.close()
-
-#revieww
-
-def consultarReviews(conexao):
-    try:
-        cursor = conexao.cursor()
-        cursor.execute("SELECT * FROM review;")
-        reviews = cursor.fetchall()
-        
-        print("Reviews encontrados:")
-        for review in reviews:
-            print(review)
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao consultar reviews: {error}")
-    finally:
-        cursor.close()
-
-#usuario
-
-def consultarUsuarios(conexao):
-    try:
-        cursor = conexao.cursor()
-        cursor.execute("SELECT * FROM \"user\";")
-        usuarios = cursor.fetchall()
-        
-        print("Usuários encontrados:")
-        for usuario in usuarios:
-            print(usuario)
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao consultar usuários: {error}")
-    finally:
-        cursor.close()
-
-#produto categoria
-
-def consultarProdutoCategoria(conexao):
-    try:
-        cursor = conexao.cursor()
-        cursor.execute("SELECT * FROM ProdutoCategoria;")
-        produtos_categoria = cursor.fetchall()
-        
-        print("Relações de produtos e categorias encontradas:")
-        for pc in produtos_categoria:
-            print(pc)
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao consultar produtos e categorias: {error}")
-    finally:
-        cursor.close()
-
+        print(f"Evolução diária das médias de avaliação para o produto ID {idProduto}:")
+        for data, media in sorted(medias_calculadas.items()):
+            print(f"Data: {data}, Média de Avaliação: {media:.2f}")
 
 def main():
     conn = conectarAoBanco()
     if conn:
-        consultarGrupos(conn)
-        consultarProdutos(conn)
-        consultarSimilares(conn)
-        consultarCategorias(conn)
-        consultarReviews(conn)
-        consultarUsuarios(conn)
-        consultarProdutoCategoria(conn)
+        for chave in ['grupos', 'produtos', 'similares', 'categorias', 'reviews', 'usuarios', 'produtos_categoria']:
+            resultados = executarConsulta(conn, chave)
+            print(f"{chave.capitalize()} encontrados:")
+            for resultado in resultados:
+                print(resultado)
+
+        idProduto = 1
+        melhores_comentarios = executarConsulta(conn, 'comentarios_por_produto', idProduto)
+        print("5 comentários mais úteis e com maior avaliação:")
+        for comentario in melhores_comentarios:
+            print(comentario)
+
+        piores_comentarios = executarConsulta(conn, 'comentarios_por_produto_menores', idProduto)
+        print("\n5 comentários mais úteis e com menor avaliação:")
+        for comentario in piores_comentarios:
+            print(comentario)
+
+        salesrank_produto = executarConsulta(conn, 'produtos_similares_maiores_vendas', idProduto)
+        if salesrank_produto:  
+            print("\nProdutos similares com maiores vendas que o produto ID {}:".format(idProduto))
+            for produto in salesrank_produto:
+                print(produto)
+        else:
+            print(f"Erro: Nenhum produto similar encontrado para o produto ID {idProduto} com rank menor que o valor especificado.")
+
+        consultarEvolucaoDiariaAvaliacoes(conn, idProduto)
+        
         conn.close()
 
-# Ponto de entrada do script
 if __name__ == '__main__':
     main()
