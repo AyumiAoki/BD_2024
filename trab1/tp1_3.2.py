@@ -22,7 +22,6 @@ def conectarAoBanco():
         print(f"Erro ao conectar ao banco de dados: {error}")
         return None
 
-
 # Função para criar o esquema de tabelas
 def criarEsquema(conexao):
     try:
@@ -43,7 +42,7 @@ def criarEsquema(conexao):
                 title VARCHAR(512),
                 salesrank INT UNIQUE,
                 idgroup VARCHAR(30),
-                CONSTRAINT fk_group FOREIGN KEY(idgroup) REFERENCES grupo(id)
+                CONSTRAINT fk_group FOREIGN KEY(idgroup) REFERENCES grupo(name)
             );
         ''')
 
@@ -99,32 +98,89 @@ def criarEsquema(conexao):
         print("Esquema de banco de dados criado com sucesso.")
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Erro ao criar o esquema de banco de dados: {error}")
-    finally:
-        if conexao:
-            cursor.close()
-            conexao.close()
-
 
 # Função para inserir dados em lotes
 def inserirDados(conexao, dados):
-    # Aqui você pode comentar as inserções para apenas visualizar os dados
-    print("\n=== Dados Prontos para Inserção ===")
-    print("\n=================================\n")
-    print(f"Grupos: {dados['grupo']}")
-    print("\n=================================\n")
-    print(f"Produtos: {dados['produto']}")
-    print("\n=================================\n")
-    print(f"Similares: {dados['similares']}")
-    print("\n=================================\n")
-    print(f"Categorias: {dados['categoria']}")
-    print("\n=================================\n")
-    print(f"Reviews: {dados['review']}")
-    print("\n=================================\n")
-    print(f"Usuários: {dados['user']}")
-    print("\n=================================\n")
-    print(f"Produto-Categoria: {dados['produtoCategoria']}")
-    print("\n=================================\n")
-    
+    insert_commands = {
+        "grupo": '''
+            INSERT INTO grupo(name) 
+            VALUES (%s) 
+            ON CONFLICT (name) DO NOTHING
+        ''',
+        "produto": '''
+            INSERT INTO produto(id, asin, title, idgroup, salesrank)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (asin) DO NOTHING
+        ''',
+        "similares": '''
+            INSERT INTO similares(asinPai, asinSimilar)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+        ''',
+        "categoria": '''
+            INSERT INTO categoria(id, name, idPai)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
+        ''',
+        "review": '''
+            INSERT INTO review(idUser, idProduct, data, rating, votes, helpful)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+        ''',
+        "user": '''
+            INSERT INTO "user"(idUser)
+            VALUES (%s)
+            ON CONFLICT DO NOTHING
+        ''',
+        "produtoCategoria": '''
+            INSERT INTO produtoCategoria(idProduct, idCategory)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+        '''
+    }
+
+    try:
+        cursor = conexao.cursor()
+
+        # Inserir grupos
+        if dados["grupo"]:
+            # Converte o set em uma lista de tuplas
+            grupos_para_inserir = [(grupo,) for grupo in dados["grupo"]]
+            print(f"Inserindo grupos: {grupos_para_inserir}")
+            cursor.executemany(insert_commands["grupo"], grupos_para_inserir)
+
+        # # Inserir produtos
+        # if dados["produto"]:
+        #     cursor.executemany(insert_commands["produto"], dados["produto"])
+
+        # # Inserir similares
+        # if dados["similares"]:
+        #     cursor.executemany(insert_commands["similares"], dados["similares"])
+
+        # # Inserir categorias
+        # if dados["categoria"]:
+        #     cursor.executemany(insert_commands["categoria"], dados["categoria"])
+
+        # # Inserir reviews
+        # if dados["review"]:
+        #     cursor.executemany(insert_commands["review"], dados["review"])
+
+        # # Inserir usuários
+        # if dados["user"]:
+        #     cursor.executemany(insert_commands["user"], dados["user"])
+
+        # # Inserir produtoCategoria
+        # if dados["produtoCategoria"]:
+        #     cursor.executemany(insert_commands["produtoCategoria"], dados["produtoCategoria"])
+
+        conexao.commit()
+        print("Dados inseridos com sucesso.")
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Erro ao inserir dados: {error}")
+        conexao.rollback()
+    finally:
+        cursor.close()
+
 
 # Função para processar arquivo e carregar dados em chunks
 def processarArquivo(filepath, conexao):
@@ -141,7 +197,6 @@ def processarArquivo(filepath, conexao):
 
     product_data = None
     padrao_categoria = re.compile(r"^(.+)\[(\d+)]$")
-    padrao_review = re.compile(r"(\d{4}-\d{1,2}-\d{1,2})\s+customer:\s+(\w+)\s+rating:\s+(\d+)\s+votes:\s+(\d+)\s+helpful:\s+(\d+)")
 
     with open(filepath, 'r', encoding='utf-8') as file:
         for line in file:
@@ -238,9 +293,11 @@ def processarArquivo(filepath, conexao):
 def main():
     conn = conectarAoBanco()
     if conn:
+        criarEsquema(conn)
         filepath = './teste.txt'
         processarArquivo(filepath, conn)
         conn.close()
+
 
 # Ponto de entrada do script
 if __name__ == '__main__':
