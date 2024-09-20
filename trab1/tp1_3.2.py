@@ -1,6 +1,5 @@
 import os
 import psycopg2
-from psycopg2 import OperationalError
 import re
 
 # Função para conectar ao banco de dados
@@ -180,7 +179,6 @@ def inserirDados(conexao, dados):
     finally:
         cursor.close()
 
-
 # Função para processar arquivo e carregar dados em chunks
 def processarArquivo(filepath, conexao):
     # Inicializar estrutura de dados para chunking
@@ -287,7 +285,6 @@ def processarArquivo(filepath, conexao):
         # Visualizar os dados carregados antes da inserção
         inserirDados(conexao, chunk_data)
 
-
 # Função principal
 def main():
     conn = conectarAoBanco()
@@ -296,7 +293,6 @@ def main():
         filepath = './teste.txt'
         processarArquivo(filepath, conn)
         conn.close()
-
 
 # Ponto de entrada do script
 if __name__ == '__main__':
