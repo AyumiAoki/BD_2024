@@ -48,11 +48,30 @@ consultas = {
         JOIN produto p ON p.asin = sp.asinSimilar
         WHERE sp.asinPai = (SELECT asin FROM produto WHERE id = %s) AND p.salesrank < %s;
     ''',
+
     'evolucao_diaria_avaliacoes': '''
         SELECT data, rating
         FROM review
         WHERE idProduct = %s
         ORDER BY data;
+    ''',
+
+    'top_produtos_por_grupo': '''
+        SELECT p.id, p.title, p.salesrank, g.name
+        FROM produto p
+        JOIN grupo g ON p.idgroup = g.name
+        ORDER BY p.salesrank
+        LIMIT 10;
+    ''',
+
+    # Listar os 10 produtos com a maior média de avaliações úteis positivas
+    'top_produtos_avaliacoes_uteis': '''
+        SELECT p.id, p.title, AVG(r.helpful) as media_helpful
+        FROM produto p
+        JOIN review r ON p.id = r.idProduct
+        GROUP BY p.id
+        ORDER BY media_helpful DESC
+        LIMIT 10;
     '''
 }
 
@@ -106,7 +125,8 @@ def main():
         for comentario in piores_comentarios:
             print(comentario)
 
-        salesrank_produto = executarConsulta(conn, 'produtos_similares_maiores_vendas', idProduto)
+        # Defina um valor para salesrank (exemplo: 1000)
+        salesrank_produto = executarConsulta(conn, 'produtos_similares_maiores_vendas', idProduto, 1000)
         if salesrank_produto:  
             print("\nProdutos similares com maiores vendas que o produto ID {}:".format(idProduto))
             for produto in salesrank_produto:
@@ -120,3 +140,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
