@@ -142,31 +142,31 @@ def inserirDados(conexao, dados):
     try:
         cursor = conexao.cursor()
 
-        # # Inserir grupos
-        # if dados["grupo"]:
-        #     # Converte o set em uma lista de tuplas
-        #     gruposParaInserir = [(grupo,) for grupo in dados["grupo"]]
-        #     cursor.executemany(insert_commands["grupo"], gruposParaInserir)
+        # Inserir grupos
+        if dados["grupo"]:
+            # Converte o set em uma lista de tuplas
+            gruposParaInserir = [(grupo,) for grupo in dados["grupo"]]
+            cursor.executemany(insert_commands["grupo"], gruposParaInserir)
 
-        # # Inserir produtos
-        # if dados["produto"]:
-        #     cursor.executemany(insert_commands["produto"], dados["produto"])
+        # Inserir produtos
+        if dados["produto"]:
+            cursor.executemany(insert_commands["produto"], dados["produto"])
 
-        # # Inserir similares
-        # if dados["similares"]:
-        #     cursor.executemany(insert_commands["similares"], dados["similares"])
+        # Inserir similares
+        if dados["similares"]:
+            cursor.executemany(insert_commands["similares"], dados["similares"])
 
-        # # Inserir categorias
-        # if dados["categoria"]:
-        #     cursor.executemany(insert_commands["categoria"], dados["categoria"])
+        # Inserir categorias
+        if dados["categoria"]:
+            cursor.executemany(insert_commands["categoria"], dados["categoria"])
 
         # Inserir produtoCategoria
         if dados["produtoCategoria"]:
             cursor.executemany(insert_commands["produtoCategoria"], dados["produtoCategoria"])
 
-        # # Inserir usuários
-        # if dados["user"]:
-        #     cursor.executemany(insert_commands["user"], dados["user"])
+        # Inserir usuários
+        if dados["user"]:
+            cursor.executemany(insert_commands["user"], dados["user"])
 
         # # Inserir reviews
         # if dados["review"]:
