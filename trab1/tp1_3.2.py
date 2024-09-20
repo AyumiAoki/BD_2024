@@ -156,9 +156,9 @@ def inserirDados(conexao, dados):
         if dados["similares"]:
             cursor.executemany(insert_commands["similares"], dados["similares"])
 
-        # # Inserir categorias
-        # if dados["categoria"]:
-        #     cursor.executemany(insert_commands["categoria"], dados["categoria"])
+        # Inserir categorias
+        if dados["categoria"]:
+            cursor.executemany(insert_commands["categoria"], dados["categoria"])
 
         # # Inserir reviews
         # if dados["review"]:
