@@ -39,7 +39,7 @@ def criarEsquema(conexao):
                 id INT PRIMARY KEY,
                 asin VARCHAR(10) UNIQUE NOT NULL,
                 title VARCHAR(512),
-                salesrank INT UNIQUE,
+                salesrank INT,
                 idgroup VARCHAR(30),
                 CONSTRAINT fk_group FOREIGN KEY(idgroup) REFERENCES grupo(name)
             );
@@ -249,7 +249,7 @@ def processarArquivo(filepath, conexao):
             # Processar reviews
             elif info[0].startswith('reviews:'):
                 # Extrai o total de reviews a partir da linha
-                total_reviews = int(info[2])  # O número total de reviews vem após 'total:'
+                total_reviews = int(info[4])  # O número de reviews baixadas para aquele produto
 
                 # Agora processa cada review individual
                 for _ in range(total_reviews):
@@ -258,10 +258,17 @@ def processarArquivo(filepath, conexao):
                     # Divide a linha usando espaços simples como delimitadores
                     review_info = review_line.split()
 
+                    # Verifica se a linha contém os dados esperados
+                    if len(review_info) < 9:
+                        continue  # Pula essa linha se não tiver os campos necessários
+
                     # Extrai os campos com base em sua posição relativa
                     review_date = review_info[0]  # A primeira parte é a data (ex: "2000-7-28")
                     review_user = review_info[2]  # Após "customer:", o próximo campo é o ID do usuário (ex: "A2JW67OY8U6HHK")
-                    review_rating = int(review_info[4])  # Após "rating:", o próximo campo é o valor do rating (ex: 5)
+                    try:
+                        review_rating = int(review_info[4])  # Após "rating:", o próximo campo é o valor do rating (ex: 5)
+                    except ValueError:
+                        print(f"Erro: rating inválido para o produto {product_data[1]}: {info[1]}")
                     review_votes = int(review_info[6])  # Após "votes:", o próximo campo é o número de votos (ex: 10)
                     review_helpful = int(review_info[8])  # Após "helpful:", o próximo campo é o número de votos úteis (ex: 9)
 
@@ -283,6 +290,7 @@ def processarArquivo(filepath, conexao):
             chunk_data['produto'].append(product_data)
 
         # Visualizar os dados carregados antes da inserção
+        print("Extração finalizada.")
         inserirDados(conexao, chunk_data)
 
 # Função principal
@@ -290,7 +298,7 @@ def main():
     conn = conectarAoBanco()
     if conn:
         criarEsquema(conn)
-        filepath = './teste.txt'
+        filepath = './amazon-meta.txt'
         processarArquivo(filepath, conn)
         conn.close()
 
