@@ -19,7 +19,6 @@ def conectarAoBanco():
         print(f"Erro ao conectar ao banco de dados: {error}")
         return None
 
-# Dicionário com consultas SQL
 consultas = {
     'grupos': "SELECT * FROM grupo;",
     'produtos': "SELECT * FROM produto;",
@@ -64,7 +63,6 @@ consultas = {
         LIMIT 10;
     ''',
 
-    # Listar os 10 produtos com a maior média de avaliações úteis positivas
     'top_produtos_avaliacoes_uteis': '''
         SELECT p.id, p.title, AVG(r.helpful) as media_helpful
         FROM produto p
