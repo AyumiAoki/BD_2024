@@ -71,14 +71,21 @@ dashboard_query = {
         """,
 
     'f': """
-                SELECT c.name, AVG(r.rating) avg
-                FROM categories c
-                JOIN categories_hierarchy ch ON ch.categoriesId = c.id
-                JOIN reviews r ON r.productAsin = ch.hierarchyProductAsin AND rating > 3 AND helpful > 0
-                GROUP BY c.name
-                ORDER BY avg DESC
-                LIMIT 5;
-             """,
+            WITH id_categories AS (
+                SELECT round(AVG(review.helpful), 4) AS media_helpful, produtocategoria.idcategory
+                FROM review
+                INNER JOIN produto ON review.idproduct = produto.id
+                INNER JOIN produtocategoria ON produto.id = produtocategoria.idproduct
+                WHERE review.rating >= 4
+                GROUP BY produtocategoria.idcategory
+                ORDER BY AVG(review.helpful) DESC
+                LIMIT 5
+            )
+            SELECT categoria.name, categoria.id, id_categories.media_helpful
+            FROM categoria
+            JOIN id_categories ON categoria.id = id_categories.idcategory
+            ORDER BY id_categories.media_helpful DESC;
+        """,
 
     'g': """
                 SELECT * 
@@ -288,6 +295,30 @@ def formatarResultadoE(resultado):
     
     print("-" * 80)
 
+# Função para formatar o resultado da consulta F
+def formatarResultadoF(resultado):
+    """Formata e exibe as 5 categorias com a maior média de avaliações úteis positivas."""
+    
+    # Verifica se há resultados
+    if not resultado:
+        print("Nenhum resultado encontrado.")
+        return
+
+    # Define os cabeçalhos da tabela
+    headers = ["ID Categoria", "Nome da Categoria", "Média de Avaliações Úteis"]
+
+    # Formata os dados para a tabela
+    tabela = [
+        [row[1], row[0], row[2]]  # row[1] = ID, row[0] = Nome da categoria, row[2] = Média útil
+        for row in resultado
+    ]
+
+    # Exibe a tabela formatada com 'tabulate'
+    print(tabulate(tabela, headers, tablefmt="fancy_grid"))
+
+    # Exibe uma linha de separação final
+    print("-" * 80)
+
 # Função para executar a consulta A
 def consultaA():
     print("\n------------------------------------------------------------------------------------\n")
@@ -364,6 +395,17 @@ def consultaE():
 
     formatarResultadoE(resultadoE)
 
+# Função para executar a consulta F
+def consultaF():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar a 5 categorias de produto com a maior média de avaliações úteis positivas por produto')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    # Executar a consulta 'F'
+    resultadoF = query(dashboard_query['f'])
+
+    formatarResultadoF(resultadoF)
+
 # Executar Opções
 def executarConsulta(opcao):
     funcaoOpcao = None
@@ -379,7 +421,7 @@ def executarConsulta(opcao):
     elif opcao == 'e':
         funcaoOpcao = consultaE
     elif opcao == 'f':
-        funcaoOpcao = consultaC
+        funcaoOpcao = consultaF
     elif opcao == 'g':
         funcaoOpcao = consultaA
     elif opcao == 'x':
