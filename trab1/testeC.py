@@ -26,20 +26,20 @@ dashboard_query = {
         """,
 
     'b': """
-                SELECT produtoSimilares .*
-                FROM produto p
-                JOIN similares ps ON ps.asinpai = p.asin
-                JOIN produto produtoSimilares ON produtoSimilares.asin = ps.asinsimilar
-                WHERE produtoSimilares.salesrank < p.salesrank AND p.id = %s;
-             """,
+            SELECT produtoSimilares .*
+            FROM produto p
+            JOIN similares ps ON ps.asinpai = p.asin
+            JOIN produto produtoSimilares ON produtoSimilares.asin = ps.asinsimilar
+            WHERE produtoSimilares.salesrank < p.salesrank AND p.id = %s;
+        """,
 
     'c': """
-                SELECT data, count(*) as qntdReview, round(avg(rating), 4) as mediaAvaliacaoDia 
-                FROM review 
-                WHERE idproduct = %s
-                GROUP BY data 
-                ORDER BY data;
-             """,
+            SELECT data, count(*) as qntdReview, round(avg(rating), 4) as mediaAvaliacaoDia 
+            FROM review 
+            WHERE idproduct = %s
+            GROUP BY data 
+            ORDER BY data;
+        """,
 
     'd': """
             WITH RankedProducts AS (
@@ -54,21 +54,21 @@ dashboard_query = {
             FROM RankedProducts
             WHERE ranking <= 10
             ORDER BY nomeGrupo, ranking;
-             """,
+        """,
 
     'e': """
-                SELECT asin, title, groupname, avg_product_rating 
-                FROM 
-                    (
-                        SELECT asin, title, groupname, AVG(rating) avg_product_rating 
-                        FROM products p 
-                        INNER JOIN reviews r ON r.productasin = p.asin AND r.rating > 3 AND r.helpful > 0
-                        GROUP BY asin
-                    ) 
-                AS aux_reviews
-                ORDER BY avg_product_rating DESC
-                LIMIT 10;
-             """,
+            SELECT asin, title, idgroup, avgProductRating
+            FROM 
+                (
+                    SELECT asin, title, idgroup, AVG(r.rating) AS avgProductRating 
+                    FROM produto p 
+                    INNER JOIN review r ON r.idproduct = p.id AND r.rating > 4 AND r.helpful > 0
+                    GROUP BY asin, title, idgroup
+                ) 
+            AS aux_reviews
+            ORDER BY avgProductRating DESC
+            LIMIT 10;
+        """,
 
     'f': """
                 SELECT c.name, AVG(r.rating) avg
@@ -263,6 +263,31 @@ def formatarResultadoD(resultado):
         print(tabulate(tabela_dados, headers=["ID", "ASIN", "Nome", "Classificação"], tablefmt="fancy_grid"))
         print("-" * 80)
 
+# Função para formatar o resultado da consulta E
+def formatarResultadoE(resultado):
+    """Formata e exibe os 10 produtos com a maior média de avaliações úteis e com nota maior que 4."""
+
+    # Se o resultado não estiver vazio, formata e exibe
+    if resultado:
+        # Preparar os dados para a tabela
+        tabela_dados = []
+        for row in resultado:
+            asin = row[0]  # O código único do produto (ASIN)
+            title = row[1]  # O título do produto
+            nomeGrupo = row[2]  # O nome do grupo ao qual o produto pertence
+            avgProductRating = row[3]  # A média das avaliações do produto
+
+            # Adicionar cada produto na lista de dados para exibição
+            tabela_dados.append([asin, title, nomeGrupo, avgProductRating])
+
+        # Exibir a tabela formatada usando 'tabulate'
+        print(tabulate(tabela_dados, headers=["ASIN", "Nome", "Grupo", "Média de Avaliação"], tablefmt="fancy_grid"))
+
+    else:
+        print("Nenhum resultado encontrado.")
+    
+    print("-" * 80)
+
 # Função para executar a consulta A
 def consultaA():
     print("\n------------------------------------------------------------------------------------\n")
@@ -328,6 +353,17 @@ def consultaD():
 
     formatarResultadoD(resultadoD)
 
+# Função para executar a consulta E
+def consultaE():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar os 10 produtos com a maior média de avaliações úteis positivas por produto')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    # Executar a consulta 'E'
+    resultadoE = query(dashboard_query['e'])
+
+    formatarResultadoE(resultadoE)
+
 # Executar Opções
 def executarConsulta(opcao):
     funcaoOpcao = None
@@ -341,7 +377,7 @@ def executarConsulta(opcao):
     elif opcao == 'd':
         funcaoOpcao = consultaD
     elif opcao == 'e':
-        funcaoOpcao = consultaB
+        funcaoOpcao = consultaE
     elif opcao == 'f':
         funcaoOpcao = consultaC
     elif opcao == 'g':
