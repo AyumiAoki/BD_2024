@@ -35,6 +35,17 @@ dashboard_query = {
             WHERE idProduct = %s
             ORDER BY data;
         """,
+    'd': """
+            SELECT p.asin, p.title, p.salesrank
+            FROM produto p
+            JOIN (
+                SELECT idgroup, asin, ROW_NUMBER() OVER (PARTITION BY idgroup ORDER BY salesrank DESC) as rn
+                FROM produto
+            ) subquery ON p.asin = subquery.asin
+            WHERE subquery.rn <= 10
+            ORDER BY subquery.idgroup, p.salesrank DESC;
+        """,
+
     # outras consultas...
 }
 
@@ -103,6 +114,28 @@ def consultaC():
         formatarResultadoC(resultadoC)
     else:
         print("Nenhum resultado encontrado para o produto " + idProduct + ".")
+
+
+def formatarResultadoD(resultado):
+    """Formata o resultado da consulta D."""
+    print("-----------Top 10 Produtos Líderes de Venda--------------\n")
+    for row in resultado:
+        asin, nome, vendas = row
+        print(f"ASIN: {asin}, Nome: {nome}, Vendas: {vendas}")
+
+def consultaD():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar os 10 produtos líderes de venda em cada grupo de produtos;')
+    print("\n------------------------------------------------------------------------------------\n")
+
+    # Executar a consulta 'd' (produtos líderes de venda)
+    resultadoD = query(dashboard_query['d'])
+
+    if resultadoD:
+        # Formatar e exibir os resultados da consulta 'd'
+        formatarResultadoD(resultadoD)
+    else:
+        print("Nenhum resultado encontrado.")
 
 # Executar Opções
 def executarConsulta(opcao):
