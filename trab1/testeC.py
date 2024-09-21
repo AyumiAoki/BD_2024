@@ -42,22 +42,18 @@ dashboard_query = {
              """,
 
     'd': """
-                SELECT asin, title, groupname, salesrank, rows 
-                FROM 
-                    (
-                        SELECT *, ROW_NUMBER() 
-                        OVER 
-                            (
-                                PARTITION BY groupname 
-                                ORDER BY 
-                                CASE WHEN salesrank <= 0 THEN 1 ELSE 0 END, 
-                                salesrank ASC
-                            ) 
-                        AS rows FROM products 
-                        WHERE salesrank IS NOT NULL
-                    ) 
-                AS aux 
-                WHERE rows <= 10;
+            WITH RankedProducts AS (
+                SELECT grupo.name AS nomeGrupo,
+                    ROW_NUMBER() OVER (PARTITION BY produto.idgroup ORDER BY produto.salesrank) AS ranking,
+                    produto.*
+                FROM produto
+                INNER JOIN grupo ON produto.idgroup = grupo.name
+                WHERE produto.salesrank > 0
+            )
+            SELECT *
+            FROM RankedProducts
+            WHERE ranking <= 10
+            ORDER BY nomeGrupo, ranking;
              """,
 
     'e': """
@@ -229,6 +225,44 @@ def formatarResultadoC(resultado, idProduct):
     print(tabulate(tabela_dados, headers=headers, tablefmt="fancy_grid"))
     print("\n")
 
+# Função para formatar o resultado da consulta D
+def formatarResultadoD(resultado):
+    """Formata e exibe os 10 produtos líderes de venda por grupo usando tabulate."""
+    
+    grupo_atual = None
+    tabela_dados = []
+
+    # Itera sobre o resultado da consulta
+    for row in resultado:
+        nome_grupo = row[0]  # O nome do grupo
+        id_produto = row[2]  # O ID do produto
+        asin = row[3]        # O ASIN do produto
+        title = row[4]       # O título do produto
+        salesrank = row[5]   # O ranking de vendas do produto
+
+        # Se o grupo mudou, imprime a tabela para o grupo anterior (se houver) e reinicia a tabela
+        if nome_grupo != grupo_atual:
+            if grupo_atual is not None:
+                # Exibe a tabela do grupo anterior
+                print(tabulate(tabela_dados, headers=["ID", "ASIN", "Nome", "Classificação"], tablefmt="fancy_grid"))
+                print("-" * 80)
+
+            # Atualiza o nome do grupo atual e limpa os dados da tabela
+            grupo_atual = nome_grupo
+            tabela_dados = []
+
+            # Exibe o cabeçalho para o novo grupo
+            print(f"\nProdutos líderes de venda do grupo {nome_grupo}")
+            print("-" * 80)
+
+        # Adiciona os dados do produto atual à lista de dados
+        tabela_dados.append([id_produto, asin, title, salesrank])
+
+    # Exibe a última tabela após o loop, se houver dados
+    if tabela_dados:
+        print(tabulate(tabela_dados, headers=["ID", "ASIN", "Nome", "Classificação"], tablefmt="fancy_grid"))
+        print("-" * 80)
+
 # Função para executar a consulta A
 def consultaA():
     print("\n------------------------------------------------------------------------------------\n")
@@ -283,6 +317,17 @@ def consultaC():
     else:
         print(f"Nenhuma avaliação encontrada para o produto {idProduct}.")
 
+# Função para executar a consulta D
+def consultaD():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar os 10 produtos líderes de venda em cada grupo de produtos')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    # Executar a consulta 'D'
+    resultadoD = query(dashboard_query['d'])
+
+    formatarResultadoD(resultadoD)
+
 # Executar Opções
 def executarConsulta(opcao):
     funcaoOpcao = None
@@ -294,7 +339,7 @@ def executarConsulta(opcao):
     elif opcao == 'c':
         funcaoOpcao = consultaC
     elif opcao == 'd':
-        funcaoOpcao = consultaA
+        funcaoOpcao = consultaD
     elif opcao == 'e':
         funcaoOpcao = consultaB
     elif opcao == 'f':
