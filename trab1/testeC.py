@@ -34,11 +34,11 @@ dashboard_query = {
              """,
 
     'c': """
-                SELECT reviewDate, AVG(rating) 
-                FROM reviews 
-                WHERE productasin = %s
-                GROUP BY reviewDate 
-                ORDER BY reviewDate;
+                SELECT data, count(*) as qntdReview, round(avg(rating), 4) as mediaAvaliacaoDia 
+                FROM review 
+                WHERE idproduct = %s
+                GROUP BY data 
+                ORDER BY data;
              """,
 
     'd': """
@@ -186,8 +186,7 @@ def formatarResultadoA(resultado):
         print(estrelas)
         print(f"{helpful} pessoas acharam isso útil\n")
 
-from tabulate import tabulate
-
+# Função para formatar o resultado da consulta B
 def formatarResultadoB(resultado, idProduct):
     """Formata o resultado da consulta no formato desejado usando tabulate."""
     
@@ -205,6 +204,26 @@ def formatarResultadoB(resultado, idProduct):
 
         # Adicionar os dados à tabela
         tabela_dados.append([id_produto, nome_produto_similar, salesrank_produto_similar])
+
+    # Exibir a tabela formatada
+    print(tabulate(tabela_dados, headers=headers, tablefmt="fancy_grid"))
+    print("\n")
+
+# Função para formatar o resultado da consulta C
+def formatarResultadoC(resultado, idProduct):
+    print(f"A evolução diária das médias de avaliação do produto {idProduct} é:\n")
+            
+    # Preparar os dados para exibição na tabela
+    headers = ['Data', 'Quantidade de Reviews', 'Média de Avaliação Diária']
+    tabela_dados = []
+            
+    for row in resultado:
+        data = row[0].strftime('%d/%m/%Y')  # Formatar a data como string (dd/mm/yyyy)
+        qntdReview = row[1]
+        mediaAvaliacaoDia = row[2]
+                
+        # Adicionar os dados à tabela
+        tabela_dados.append([data, qntdReview, mediaAvaliacaoDia])
 
     # Exibir a tabela formatada
     print(tabulate(tabela_dados, headers=headers, tablefmt="fancy_grid"))
@@ -228,7 +247,7 @@ def consultaA():
     else:
         print("Nenhum resultado encontrado para o produto " + idProduct + ".")
 
-# Função para executar a consulta A
+# Função para executar a consulta B
 def consultaB():
     print("\n------------------------------------------------------------------------------------\n")
     print('Listar os produtos similares com maiores vendas do que ele')
@@ -241,10 +260,28 @@ def consultaB():
     resultadoB = query(dashboard_query['b'], (idProduct,))
 
     if resultadoB:
-        # Formatar e exibir os resultados da consulta 'a'
+        # Formatar e exibir os resultados da consulta 'b'
         formatarResultadoB(resultadoB, idProduct)
     else:
         print("Nenhum resultado encontrado para o produto " + idProduct + ".")
+
+# Função para executar a consulta C
+def consultaC():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Mostrar a evolução diária das médias de avaliação ao longo do intervalo de tempo \ncoberto no arquivo de entrada')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    idProduct = input('Digite o id do produto: ')
+    print("\n------------------------------------------------------------------------------------\n")
+
+    # Executar a consulta 'c'
+    resultadoC = query(dashboard_query['c'], (idProduct,))
+
+    if resultadoC:
+        # Formatar e exibir os resultados da consulta 'c'
+        formatarResultadoC(resultadoC, idProduct)
+    else:
+        print(f"Nenhuma avaliação encontrada para o produto {idProduct}.")
 
 # Executar Opções
 def executarConsulta(opcao):
@@ -255,15 +292,15 @@ def executarConsulta(opcao):
     elif opcao == 'b':
         funcaoOpcao = consultaB
     elif opcao == 'c':
-        funcaoOpcao = consultaA()
+        funcaoOpcao = consultaC
     elif opcao == 'd':
-        funcaoOpcao = consultaA()
+        funcaoOpcao = consultaA
     elif opcao == 'e':
-        funcaoOpcao = consultaA()
+        funcaoOpcao = consultaB
     elif opcao == 'f':
-        funcaoOpcao = consultaA()
+        funcaoOpcao = consultaC
     elif opcao == 'g':
-        funcaoOpcao = consultaA()
+        funcaoOpcao = consultaA
     elif opcao == 'x':
         exit()
 
