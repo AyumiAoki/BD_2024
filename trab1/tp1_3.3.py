@@ -1,15 +1,108 @@
-import dash
-from dash import dcc, html, Input, Output, State
-import dash_bootstrap_components as dbc
-import pandas as pd
 import psycopg2
 import os
+from tabulate import tabulate
 
-# Variável global para a conexão
+# Variáveis Globais
+mensagemVoltar = 'Digite (v) para voltar e (x) para sair: '
 conn = None
+dashboard_query = {
+    'a': """
+            (
+                SELECT 'MAIOR' as tipo,
+                * FROM review
+                WHERE idproduct = %s
+                ORDER BY helpful DESC, rating DESC
+                LIMIT 5
+            )
+            UNION ALL
+            (
+                SELECT 'MENOR' as tipo,
+                * FROM review
+                WHERE idproduct = %s
+                ORDER BY helpful DESC, rating ASC
+                LIMIT 5
+            )
+            ORDER BY tipo, helpful desc;
+        """,
 
-# Inicializar a aplicação Dash com o tema Bootstrap
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
+    'b': """
+            SELECT produtoSimilares .*
+            FROM produto p
+            JOIN similares ps ON ps.asinpai = p.asin
+            JOIN produto produtoSimilares ON produtoSimilares.asin = ps.asinsimilar
+            WHERE produtoSimilares.salesrank < p.salesrank AND p.id = %s;
+        """,
+
+    'c': """
+            SELECT data, count(*) as qntdReview, round(avg(rating), 4) as mediaAvaliacaoDia 
+            FROM review 
+            WHERE idproduct = %s
+            GROUP BY data 
+            ORDER BY data;
+        """,
+
+    'd': """
+            WITH RankedProducts AS (
+                SELECT grupo.name AS nomeGrupo,
+                    ROW_NUMBER() OVER (PARTITION BY produto.idgroup ORDER BY produto.salesrank) AS ranking,
+                    produto.*
+                FROM produto
+                INNER JOIN grupo ON produto.idgroup = grupo.name
+                WHERE produto.salesrank > 0
+            )
+            SELECT *
+            FROM RankedProducts
+            WHERE ranking <= 10
+            ORDER BY nomeGrupo, ranking;
+        """,
+
+    'e': """
+            SELECT asin, title, idgroup, avgProductRating
+            FROM 
+                (
+                    SELECT asin, title, idgroup, AVG(r.rating) AS avgProductRating 
+                    FROM produto p 
+                    INNER JOIN review r ON r.idproduct = p.id AND r.rating > 4 AND r.helpful > 0
+                    GROUP BY asin, title, idgroup
+                ) 
+            AS aux_reviews
+            ORDER BY avgProductRating DESC
+            LIMIT 10;
+        """,
+
+    'f': """
+            WITH id_categories AS (
+                SELECT round(AVG(review.helpful), 4) AS media_helpful, produtocategoria.idcategory
+                FROM review
+                INNER JOIN produto ON review.idproduct = produto.id
+                INNER JOIN produtocategoria ON produto.id = produtocategoria.idproduct
+                WHERE review.rating >= 4
+                GROUP BY produtocategoria.idcategory
+                ORDER BY AVG(review.helpful) DESC
+                LIMIT 5
+            )
+            SELECT categoria.name, categoria.id, id_categories.media_helpful
+            FROM categoria
+            JOIN id_categories ON categoria.id = id_categories.idcategory
+            ORDER BY id_categories.media_helpful DESC;
+        """,
+
+    'g': """
+            SELECT * 
+            FROM 
+                (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY idgroup ORDER BY count_customer_reviews DESC) AS rows 
+                    FROM 
+                    (
+                        SELECT iduser, idgroup, COUNT(iduser) count_customer_reviews 
+                        FROM produto p 
+                        INNER JOIN review r ON r.idproduct = p.id 
+                        GROUP BY iduser, idgroup
+                    ) AS aux_reviews
+                ) 
+            AS aux WHERE rows <= 10;
+        """
+}
 
 # Função para conectar ao banco de dados
 def conectarAoBanco():
@@ -24,949 +117,412 @@ def conectarAoBanco():
         )
         print("Conexão com o banco de dados estabelecida com sucesso.")
         return conexao
+
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Erro ao conectar ao banco de dados: {error}")
         return None
 
-# Função para realizar a consulta SQL no banco de dados
-def consulta_a(id_product):
-    global conn
-    # Definir a consulta SQL
-    sql = f'''(select 'Maiores avaliações' as tipo, iduser, data, rating, helpful
-               from review
-               where idproduct = {id_product}
-               order by rating desc, helpful desc
-               limit 5)
-               union
-               (select 'Menores avaliações' as tipo, iduser, data, rating, helpful
-               from review
-               where idproduct = {id_product}
-               order by rating asc, helpful desc
-               limit 5)
-               order by tipo, helpful desc;'''
-
-    try:
-        # Criar cursor para executar a consulta
-        cur = conn.cursor()
-
-        # Executar a consulta
-        cur.execute(sql)
-
-        # Obter os resultados da consulta
-        rows = cur.fetchall()
-
-        # Fechar o cursor
-        cur.close()
-
-        # Mapear os resultados para um formato de dicionário
-        data = [
-            {
-                "id_user": row[1],
-                "date": row[2],
-                "rating": row[3],
-                "helpful": row[4]
-            }
-            for row in rows
-        ]
-        
-        return data
-
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao realizar consulta: {error}")
-        return []
-
-# Função para exibir as estrelas de rating
-def exibir_estrelas(rating):
-    return html.Div([html.Span("*") for _ in range(rating)], style={"display": "inline-block"})
-
-# Função que engloba todo o layout e a lógica da Consulta A
-def consulta_a_layout():
-    return dbc.Container(
-        [
-            # Botão para retornar ao menu principal no topo com o texto "Voltar"
-            # Linha com o botão à esquerda e o título centralizado
-            dbc.Row(
-                [
-                    # Coluna para o botão "Voltar" alinhado à esquerda
-                    dbc.Col(
-                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
-                        width=2,  # Define a largura da coluna do botão
-                        style={"textAlign": "left"}
-                    ),
-                    # Coluna para o título centralizado
-                    dbc.Col(
-                        html.H1(
-                            "Consulta A - Comentários do Produto", 
-                            style={"margin-bottom": "2.5rem", "margin-top": "1rem"}
-                        ),
-                        width=8,  # Define a largura da coluna do título
-                        style={"textAlign": "center"}
-                    ),
-                ],
-                className="mt-4 mb-4"
-            ),
-
-            # Input para inserir o ID do produto
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dbc.Input(id="input-produto-id", placeholder="Insira o ID do produto", type="number"), 
-                        width=4
-                    ),
-                    dbc.Col(
-                        dbc.Button("OK", id="submit-id", color="primary"), 
-                        width=1
-                    )
-                ],
-                justify="center",
-                className="mb-4"
-            ),
-
-            # Área onde os comentários serão exibidos
-            html.Div(id="comentarios")
-        ]
-    )
-
-# Callback para processar o ID do produto e exibir os comentários (integração com a função de layout)
-@app.callback(
-    Output("comentarios", "children"),
-    Input("submit-id", "n_clicks"),
-    State("input-produto-id", "value")
-)
-def mostrar_comentarios(n_clicks, id_product):
-    if n_clicks and id_product:
-        comentarios = consulta_a(id_product)
-
-        # Se a consulta não retornar resultados, exibe uma mensagem
-        if not comentarios:
-            return html.P(f"ID {id_product} não encontrado ou sem avaliações.", style={"textAlign": "center", "color": "red"})
-        
-        # Remover duplicatas (se necessário, caso não seja garantido pela consulta SQL)
-        comentarios_unicos = {comentario["id_user"]: comentario for comentario in comentarios}.values()
-
-        # Exibir os comentários formatados
-        return [
-            dbc.Card(
-                dbc.CardBody([
-                    html.Div([
-                        html.Span(f"Usuário: {comentario['id_user']}")
-                    ]),
-                    html.P(f"Avaliado em {pd.to_datetime(comentario['date']).strftime('%d de %B de %Y')}", className="text-muted"),
-                    exibir_estrelas(comentario["rating"]),  # Exibe estrelas
-                    html.P(f"{comentario['helpful']} {'pessoas acharam' if comentario['helpful'] > 1 else 'pessoa achou'} isso útil")
-                ]), className="mb-3"
-            )
-            for comentario in comentarios_unicos
-        ]
-    return html.P("Insira o ID do produto e clique em OK para ver os comentários.", style={"textAlign": "center"})
-
-# Função para realizar a consulta SQL no banco de dados para a Consulta B
-def consulta_b(id_product):
+# Função para executar as consultas SQL
+def query(sql, params=None):
+    """Função genérica para executar consultas SQL."""
     global conn
     try:
-        # Consulta para obter o nome e salesrank do produto principal
-        sql_produto = f'''select title, salesrank from produto where id = {id_product};'''
         cur = conn.cursor()
 
-        cur.execute(sql_produto)
-        produto_info = cur.fetchone()
+        # Executa a consulta com ou sem parâmetros
+        if params:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
 
-        if produto_info is None:
-            return {"produto_nao_encontrado": True}, []
-
-        # Extrai o título e salesrank do produto principal
-        nome_produto, salesrank_produto = produto_info
-
-        # Consulta para obter os produtos similares com mais vendas (salesrank menor)
-        sql_similares = f'''
-            select produto.id, produto.title, produto.salesrank
-            from produto
-            join similares on produto.asin = similares.asinsimilar
-            where similares.asinpai = (select asin from produto where id = {id_product})
-            and produto.salesrank > {salesrank_produto}
-            order by produto.salesrank asc;
-        '''
-
-        cur.execute(sql_similares)
-        similares = cur.fetchall()
-        cur.close()
-
-        return {"produto_nao_encontrado": False, "nome_produto": nome_produto, "salesrank_produto": salesrank_produto}, similares
-
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao realizar consulta: {error}")
-        return {"produto_nao_encontrado": True}, []
-
-
-# Função que engloba todo o layout e a lógica da Consulta B
-def consulta_b_layout():
-    return dbc.Container(
-        [
-            # Linha com o botão à esquerda e o título centralizado
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
-                        width=2,
-                        style={"textAlign": "left"}
-                    ),
-                    dbc.Col(
-                        html.H1(
-                            "Consulta B - Produtos Similares com Mais Vendas", 
-                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
-                        ),
-                        width=8,
-                        style={"textAlign": "center"}
-                    ),
-                ],
-                className="mt-4 mb-4"
-            ),
-
-            # Input para inserir o ID do produto
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dbc.Input(id="input-produto-id-b", placeholder="Insira o ID do produto", type="number"), 
-                        width=4
-                    ),
-                    dbc.Col(
-                        dbc.Button("OK", id="submit-id-b", color="primary"), 
-                        width=1
-                    )
-                ],
-                justify="center",
-                className="mb-4"
-            ),
-
-            # Área onde a mensagem e a tabela serão exibidas
-            html.Div(id="resultado-b")
-        ]
-    )
-
-
-# Callback para processar o ID do produto e exibir os produtos similares com mais vendas
-@app.callback(
-    Output("resultado-b", "children"),
-    Input("submit-id-b", "n_clicks"),
-    State("input-produto-id-b", "value")
-)
-def mostrar_similares(n_clicks, id_product):
-    if n_clicks and id_product:
-        info_produto, similares = consulta_b(id_product)
-
-        # Se o produto não for encontrado
-        if info_produto["produto_nao_encontrado"]:
-            return html.P(f"ID {id_product} não encontrado ou sem produtos similares.", style={"textAlign": "center", "color": "red"})
-
-        # Se não houver produtos similares com mais vendas
-        if not similares:
-            return html.P([
-                "O produto ",
-                html.Span(f"{info_produto['nome_produto']}", style={"color": "blue"}),
-                " com classificação ",
-                html.Span(f"{info_produto['salesrank_produto']}", style={"color": "blue"}),
-                " não possui produtos similares com mais vendas."
-            ], style={"textAlign": "center"}), 
-
-        # Tabela com os resultados dos produtos similares
-        tabela = dbc.Table(
-            [
-                html.Thead(
-                    html.Tr([html.Th("ID do Produto"), html.Th("Nome do Produto"), html.Th("Classificação")])
-                ),
-                html.Tbody([
-                    html.Tr([html.Td(similar[0]), html.Td(similar[1]), html.Td(similar[2])]) for similar in similares
-                ])
-            ],
-            bordered=True,
-            hover=True,
-            responsive=True,
-            striped=True,
-        )
-
-        # Mensagem e tabela
-        return html.Div([
-            html.P([
-                "O produto ",
-                html.Span(f"{info_produto['nome_produto']}", style={"color": "blue"}),
-                " com classificação ",
-                html.Span(f"{info_produto['salesrank_produto']}", style={"color": "blue"}),
-                " tem os seguintes produtos similares com mais vendas:"
-            ]),            
-            tabela
-        ])
-    
-    return html.P("Insira o ID do produto e clique em OK para ver os produtos similares.", style={"textAlign": "center"})
-
-# Função para realizar a consulta SQL no banco de dados para a Consulta C
-def consulta_c(id_product):
-    global conn
-    try:
-        # Consulta SQL para calcular a média diária e acumulada das avaliações
-        sql = f'''
-            select data, count(*) as quantidade_de_reviews, 
-            round(avg(rating), 4) as media_avaliacao_dia,
-            round(AVG(AVG(rating)) OVER (ORDER BY data), 4) AS media_acumulada
-            from review
-            where idproduct = {id_product}
-            group by data
-            order by data;
-        '''
-        cur = conn.cursor()
-        cur.execute(sql)
         result = cur.fetchall()
         cur.close()
+        conn.commit()
+
+        return result
+
+    except psycopg2.DatabaseError as error:
+        print("** Erro ao executar a consulta:", error)
+        return None
+
+# Função para limpar o terminal
+def clearTerminal():
+    os.system('clear')
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+# Função para formatar o resultado da consulta A
+def formatarResultadoA(resultado):
+    """Formata o resultado da consulta no formato desejado."""
+    
+    # Contar quantos registros têm o tipo 'MAIOR'
+    count_maiores = sum(1 for row in resultado if row[0] == 'MAIOR')
+
+    # Imprimir o cabeçalho para as maiores avaliações
+    print("-----------Comentarios com mais úteis e com mais avaliações--------------\n")
+
+    # Iterar sobre o resultado e imprimir as maiores avaliações
+    for i, row in enumerate(resultado):
+        tipo = row[0]  # 'MAIOR' ou 'MENOR'
+        id_user = row[1]
+        data_avaliacao = row[3]
+        rating = row[4]
+        helpful = row[6]
+
+        # Formatação da nota em forma de estrelas
+        estrelas = '*' * int(rating)
+
+        # Se chegar à primeira avaliação com tipo 'MENOR', imprimir o cabeçalho para menores
+        if i == count_maiores:
+            print("-----------Comentarios com mais úteis e com menos avaliações--------------\n")
+
+        # Imprimir o resultado formatado
+        print(f"Usuário: {id_user}")
+        print(f"Avaliado em {data_avaliacao.strftime('%d de %B de %Y')}")
+        print(estrelas)
+        print(f"{helpful} pessoas acharam isso útil\n")
+
+# Função para formatar o resultado da consulta B
+def formatarResultadoB(resultado, idProduct):
+    """Formata o resultado da consulta no formato desejado usando tabulate."""
+    
+    print(f"O produto {idProduct} tem os seguintes similares com rank maior que o seu:\n")
+    
+    # Preparar os dados para exibição
+    headers = ['ID', 'Nome', 'Classificação']
+    tabela_dados = []
+
+    # Iterar sobre o resultado (produtos similares) e preparar os dados
+    for row in resultado:
+        id_produto = row[0]
+        nome_produto_similar = row[2]
+        salesrank_produto_similar = row[3]
+
+        # Adicionar os dados à tabela
+        tabela_dados.append([id_produto, nome_produto_similar, salesrank_produto_similar])
+
+    # Exibir a tabela formatada
+    print(tabulate(tabela_dados, headers=headers, tablefmt="fancy_grid"))
+    print("\n")
+
+# Função para formatar o resultado da consulta C
+def formatarResultadoC(resultado, idProduct):
+    print(f"A evolução diária das médias de avaliação do produto {idProduct} é:\n")
+            
+    # Preparar os dados para exibição na tabela
+    headers = ['Data', 'Quantidade de Reviews', 'Média de Avaliação Diária']
+    tabela_dados = []
+            
+    for row in resultado:
+        data = row[0].strftime('%d/%m/%Y')  # Formatar a data como string (dd/mm/yyyy)
+        qntdReview = row[1]
+        mediaAvaliacaoDia = row[2]
+                
+        # Adicionar os dados à tabela
+        tabela_dados.append([data, qntdReview, mediaAvaliacaoDia])
+
+    # Exibir a tabela formatada
+    print(tabulate(tabela_dados, headers=headers, tablefmt="fancy_grid"))
+    print("\n")
+
+# Função para formatar o resultado da consulta D
+def formatarResultadoD(resultado):
+    """Formata e exibe os 10 produtos líderes de venda por grupo usando tabulate."""
+    
+    grupo_atual = None
+    tabela_dados = []
+
+    # Itera sobre o resultado da consulta
+    for row in resultado:
+        nome_grupo = row[0]  # O nome do grupo
+        id_produto = row[2]  # O ID do produto
+        asin = row[3]        # O ASIN do produto
+        title = row[4]       # O título do produto
+        salesrank = row[5]   # O ranking de vendas do produto
+
+        # Se o grupo mudou, imprime a tabela para o grupo anterior (se houver) e reinicia a tabela
+        if nome_grupo != grupo_atual:
+            if grupo_atual is not None:
+                # Exibe a tabela do grupo anterior
+                print(tabulate(tabela_dados, headers=["ID", "ASIN", "Nome", "Classificação"], tablefmt="fancy_grid"))
+                print("-" * 80)
+
+            # Atualiza o nome do grupo atual e limpa os dados da tabela
+            grupo_atual = nome_grupo
+            tabela_dados = []
+
+            # Exibe o cabeçalho para o novo grupo
+            print(f"\nProdutos líderes de venda do grupo {nome_grupo}")
+            print("-" * 80)
+
+        # Adiciona os dados do produto atual à lista de dados
+        tabela_dados.append([id_produto, asin, title, salesrank])
+
+    # Exibe a última tabela após o loop, se houver dados
+    if tabela_dados:
+        print(tabulate(tabela_dados, headers=["ID", "ASIN", "Nome", "Classificação"], tablefmt="fancy_grid"))
+        print("-" * 80)
+
+# Função para formatar o resultado da consulta E
+def formatarResultadoE(resultado):
+    """Formata e exibe os 10 produtos com a maior média de avaliações úteis e com nota maior que 4."""
+
+    # Se o resultado não estiver vazio, formata e exibe
+    if resultado:
+        # Preparar os dados para a tabela
+        tabela_dados = []
+        for row in resultado:
+            asin = row[0]  # O código único do produto (ASIN)
+            title = row[1]  # O título do produto
+            nomeGrupo = row[2]  # O nome do grupo ao qual o produto pertence
+            avgProductRating = row[3]  # A média das avaliações do produto
+
+            # Adicionar cada produto na lista de dados para exibição
+            tabela_dados.append([asin, title, nomeGrupo, avgProductRating])
+
+        # Exibir a tabela formatada usando 'tabulate'
+        print(tabulate(tabela_dados, headers=["ASIN", "Nome", "Grupo", "Média de Avaliação"], tablefmt="fancy_grid"))
 
-        # Retornar os dados como lista de dicionários
-        data = [
-            {
-                "date": row[0],
-                "quantidade_de_reviews": row[1],
-                "media_avaliacao_dia": row[2],
-                "media_acumulada": row[3]
-            }
-            for row in result
-        ]
-        return data
-
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao realizar consulta: {error}")
-        return []
-
-# Função que engloba todo o layout e a lógica da Consulta C
-def consulta_c_layout():
-    return dbc.Container(
-        [
-            # Linha com o botão à esquerda e o título centralizado
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
-                        width=2,
-                        style={"textAlign": "left"}
-                    ),
-                    dbc.Col(
-                        html.H1(
-                            "Consulta C - Evolução Diária das Avaliações", 
-                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
-                        ),
-                        width=8,
-                        style={"textAlign": "center"}
-                    ),
-                ],
-                className="mt-4 mb-4"
-            ),
-
-            # Input para inserir o ID do produto
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dbc.Input(id="input-produto-id-c", placeholder="Insira o ID do produto", type="number"), 
-                        width=4
-                    ),
-                    dbc.Col(
-                        dbc.Button("OK", id="submit-id-c", color="primary"), 
-                        width=1
-                    )
-                ],
-                justify="center",
-                className="mb-4"
-            ),
-
-            # Área onde o gráfico será exibido (inicialmente oculto)
-            dcc.Graph(id="grafico-c", style={"display": "none"}),
-
-            # Área onde as mensagens de erro serão exibidas
-            html.Div(id="mensagem-erro-c", style={"textAlign": "center", "color": "red"})
-        ]
-    )
-
-@app.callback(
-    [Output("grafico-c", "figure"), Output("grafico-c", "style"), Output("mensagem-erro-c", "children")],
-    Input("submit-id-c", "n_clicks"),
-    State("input-produto-id-c", "value")
-)
-def mostrar_evolucao_avaliacoes(n_clicks, id_product):
-    if n_clicks and id_product:
-        dados = consulta_c(id_product)
-
-        # Se não houver dados para o produto, mostrar mensagem de erro e ocultar o gráfico
-        if not dados:
-            return {}, {"display": "none"}, f"ID {id_product} não encontrado ou sem avaliações."
-
-        # Criar DataFrame a partir dos dados
-        df = pd.DataFrame(dados)
-
-        # Definir a quantidade de avaliações e ajustar o singular/plural
-        num_avaliacoes = len(df)
-        avaliacao_plural = "avaliação" if num_avaliacoes == 1 else "avaliações"
-
-        # Criar o gráfico de linha para mostrar a média diária e acumulada
-        fig = {
-            "data": [
-                {"x": df["date"], "y": df["media_avaliacao_dia"], "type": "line", "name": "Média Diária"},
-                {"x": df["date"], "y": df["media_acumulada"], "type": "line", "name": "Média Acumulada"}
-            ],
-            "layout": {
-                "title": f"Evolução das Avaliações do Produto {id_product} que possui {num_avaliacoes} {avaliacao_plural}",
-                "xaxis": {"title": "Data"},
-                "yaxis": {"title": "Média de Avaliações"}
-            }
-        }
-
-        # Se há dados, exibir o gráfico e limpar qualquer mensagem de erro
-        return fig, {"display": "block"}, ""
-
-    # Caso não tenha sido clicado ainda, ocultar o gráfico
-    return {}, {"display": "none"}, "Insira o ID do produto e clique em OK para ver a evolução das avaliações."
-
-def consulta_d(group_name):
-    global conn
-    sql = '''WITH RankedProducts AS (
-                 SELECT grupo.name as group_name, ROW_NUMBER() OVER (PARTITION BY produto.idgroup ORDER BY produto.salesrank) AS ranking, produto.*
-                 FROM produto
-                 INNER JOIN grupo ON produto.idgroup = grupo.name
-                 WHERE produto.salesrank > 0 AND grupo.name = %s
-             )
-             SELECT *
-             FROM RankedProducts
-             WHERE ranking <= 10
-             ORDER BY group_name, ranking;'''
-
-    try:
-        cur = conn.cursor()
-        cur.execute(sql, (group_name,))
-        rows = cur.fetchall()
-        cur.close()
-
-        # Verificar e tratar os campos com base no tamanho da tupla
-        return [
-            {
-                "product_id": row[2] if len(row) > 2 else None,  # ID do produto ou None
-                "product_name": row[4] if len(row) > 4 else None,  # Nome do produto ou None
-                "salesrank": row[5] if len(row) > 5 else None  # Salesrank ou None
-            }
-            for row in rows
-        ]
-
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao realizar consulta: {error}")
-        if conn:
-            conn.rollback()
-        return []
-
-def carregar_grupos():
-    global conn
-    sql = 'SELECT name FROM "grupo" ORDER BY name;'  # Certifique-se de que "grupo" é o nome correto da tabela
-    try:
-        cur = conn.cursor()
-        cur.execute(sql)
-        rows = cur.fetchall()
-        cur.close()
-
-        # Como só temos uma coluna 'name', row[0] será o nome do grupo
-        return [{"label": row[0], "value": row[0]} for row in rows]
-
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao carregar grupos: {error}")
-        return []
-
-def consulta_d_layout():
-    return dbc.Container(
-        [
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
-                        width=2,
-                        style={"textAlign": "left"}
-                    ),
-                    dbc.Col(
-                        html.H1("Consulta D - Top 10 Produtos por Grupo", style={"margin-bottom": "2rem", "margin-top": "1rem"}),
-                        width=8,
-                        style={"textAlign": "center"}
-                    ),
-                ],
-                className="mt-4 mb-4"
-            ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Dropdown(
-                            id="dropdown-grupo",
-                            options=carregar_grupos(),
-                            placeholder="Selecione um grupo de produtos",
-                        ),
-                        width=6
-                    ),
-                ],
-                justify="center",
-                className="mb-4"
-            ),
-            html.Div(id="tabela-produtos"),
-            html.Div(id="mensagem-erro-d", style={"textAlign": "center", "color": "red"})
-        ]
-    )
-
-@app.callback(
-    [Output("tabela-produtos", "children"), Output("mensagem-erro-d", "children")],
-    Input("dropdown-grupo", "value")
-)
-def mostrar_produtos_por_grupo(id_group):
-    if id_group:
-        produtos = consulta_d(id_group)
-
-        if not produtos:
-            return None, "Nenhum produto encontrado para o grupo selecionado."
-
-        tabela = dbc.Table(
-            [
-                html.Thead(
-                    html.Tr([html.Th("ID do Produto"), html.Th("Nome do Produto"), html.Th("Classificação")])
-                ),
-                html.Tbody([
-                    html.Tr([html.Td(produto["product_id"]), html.Td(produto["product_name"]), html.Td(produto["salesrank"])]) 
-                    for produto in produtos
-                ])
-            ],
-            bordered=True,
-            hover=True,
-            responsive=True,
-            striped=True,
-        )
-
-        return tabela, ""
-
-    return None, "Selecione um grupo de produtos."
-
-
-# Função para criar um card (aqui fica o layout dos cards)
-def criarCard(title, subtitle, text, link1, href_link):
-    return dbc.Card(
-        dbc.CardBody([
-            html.H5(title, className="card-title"),
-            html.H6(subtitle, className="card-subtitle mb-2 text-body-secondary"),
-            html.P(text, className="card-text"),
-            html.A(link1, href=href_link, className="card-link"),
-        ]),
-        style={"height": "12rem"}  # Definir altura padrão para todos os cards
-    )
-
-def consulta_e():
-    global conn
-    sql = '''
-        with highest_helpful as (
-            select round(avg(helpful), 4) as media_util, idproduct
-            from review
-            where rating >= 4
-            group by idproduct
-            order by avg(helpful) desc
-            limit 10
-        )
-        select produto.id, produto.asin, produto.title, "grupo".name, produto.salesrank, highest_helpful.media_util
-        from produto
-        join highest_helpful on produto.id = highest_helpful.idproduct
-        join "grupo" on produto.idgroup = "grupo".name
-        order by highest_helpful.media_util desc;
-    '''
-
-    try:
-        cur = conn.cursor()
-        cur.execute(sql)
-        rows = cur.fetchall()
-        cur.close()
-
-        # Formatar o resultado da consulta em uma lista de dicionários
-        return [
-            {
-                "product_id": row[0],
-                "asin": row[1],
-                "title": row[2],
-                "group_name": row[3],
-                "salesrank": row[4],
-                "average_helpful": row[5]
-            }
-            for row in rows
-        ]
-
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao realizar consulta: {error}")
-        if conn:
-            conn.rollback()
-        return []
-
-
-def consulta_e_layout():
-    return dbc.Container(
-        [
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
-                        width=2,
-                        style={"textAlign": "left"}
-                    ),
-                    dbc.Col(
-                        html.H1(
-                            "Consulta E - Produtos com as Maiores Médias de Avaliações Úteis Positivas", 
-                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
-                        ),
-                        width=8,
-                        style={"textAlign": "center"}
-                    ),
-                ],
-                className="mt-4 mb-4"
-            ),
-            # Aqui criamos uma tabela onde os resultados serão exibidos
-            html.Div(id="tabela-produtos-e")
-        ]
-    )
-
-def consulta_e_layout():
-    return dbc.Container(
-        [
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
-                        width=2,
-                        style={"textAlign": "left"}
-                    ),
-                    dbc.Col(
-                        html.H1(
-                            "Consulta E - Produtos com as Maiores Médias de Avaliações Úteis Positivas", 
-                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
-                        ),
-                        width=8,
-                        style={"textAlign": "center"}
-                    ),
-                ],
-                className="mt-4 mb-4"
-            ),
-            # Aqui criamos uma tabela onde os resultados serão exibidos
-            html.Div(id="tabela-produtos-e")
-        ]
-    )
-
-@app.callback(
-    Output("tabela-produtos-e", "children"),
-    Input("url", "pathname")
-)
-def mostrar_produtos_e(pathname):
-    if pathname == '/consulta-e':
-        produtos = consulta_e()
-
-        if not produtos:
-            return html.P("Nenhum produto encontrado com médias de avaliações úteis positivas.", style={"textAlign": "center", "color": "red"})
-
-        # Criar a tabela com os produtos e suas médias de avaliações úteis
-        tabela = dbc.Table(
-            [
-                html.Thead(
-                    html.Tr([html.Th("ID do Produto"), html.Th("ASIN"), html.Th("Título"), html.Th("Grupo"), html.Th("Salesrank"), html.Th("Média de Avaliações Úteis")])
-                ),
-                html.Tbody([
-                    html.Tr([html.Td(produto["product_id"]), html.Td(produto["asin"]), html.Td(produto["title"]), html.Td(produto["group_name"]), html.Td(produto["salesrank"]), html.Td(produto["average_helpful"])])
-                    for produto in produtos
-                ])
-            ],
-            bordered=True,
-            hover=True,
-            responsive=True,
-            striped=True,
-        )
-
-        return tabela
-
-    return None
-
-def consulta_f():
-    global conn
-    sql = '''
-        with id_categories as (
-            select round(avg(review.helpful), 4) as media_helpful, produto.idgroup as id_category
-            from review
-            inner join produto on review.idproduct = produto.id
-            where review.rating >= 4
-            group by produto.idgroup
-            order by avg(review.helpful) desc
-            limit 5
-        )
-        select grupo.name, id_categories.media_helpful
-        from grupo
-        join id_categories on grupo.name = id_categories.id_category
-        order by id_categories.media_helpful desc;
-    '''
-
-    try:
-        cur = conn.cursor()
-        cur.execute(sql)
-        rows = cur.fetchall()
-        cur.close()
-
-        # Formatar os resultados em uma lista de dicionários
-        return [
-            {
-                "categoria": row[0],  # Nome do grupo (categoria)
-                "media_helpful": row[1]  # Média de avaliações úteis
-            }
-            for row in rows
-        ]
-
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao realizar consulta: {error}")
-        if conn:
-            conn.rollback()
-        return []
-
-def consulta_f_layout():
-    return dbc.Container(
-        [
-            # Cabeçalho da página com título
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
-                        width=2,
-                        style={"textAlign": "left"}
-                    ),
-                    dbc.Col(
-                        html.H1(
-                            "Consulta F - 5 Categorias com a Maior Média de Avaliações Úteis Positivas", 
-                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
-                        ),
-                        width=8,
-                        style={"textAlign": "center"}
-                    ),
-                ],
-                className="mt-4 mb-4"
-            ),
-
-            # Área onde a tabela será exibida
-            html.Div(id="tabela-categorias-f")
-        ]
-    )
-
-@app.callback(
-    Output("tabela-categorias-f", "children"),
-    Input("url", "pathname")
-)
-def mostrar_categorias_f(pathname):
-    if pathname == '/consulta-f':
-        categorias = consulta_f()
-
-        if not categorias:
-            return html.P("Nenhuma categoria encontrada com médias de avaliações úteis positivas.", style={"textAlign": "center", "color": "red"})
-
-        # Criar a tabela com os resultados
-        tabela = dbc.Table(
-            [
-                html.Thead(
-                    html.Tr([html.Th("Categoria"), html.Th("Média de Avaliações Úteis")])
-                ),
-                html.Tbody([
-                    html.Tr([html.Td(categoria["categoria"]), html.Td(categoria["media_helpful"])])
-                    for categoria in categorias
-                ])
-            ],
-            bordered=True,
-            hover=True,
-            responsive=True,
-            striped=True,
-        )
-
-        return tabela
-
-    return None
-
-
-def consulta_g(grupo_selecionado):
-    global conn
-    sql = '''
-        with RankingGroup as (
-            select grupo.name as group_name, review.iduser, count(*) as num_comentarios, 
-                   row_number() over (partition by grupo.name order by count(*) desc) as ranking
-            from review
-            join produto on review.idproduct = produto.id
-            join grupo on produto.idgroup = grupo.name
-            group by review.iduser, grupo.name
-        )
-        select * 
-        from RankingGroup 
-        where ranking <= 10 
-        and group_name = %s
-        order by ranking;
-    '''
-
-    try:
-        cur = conn.cursor()
-        cur.execute(sql, (grupo_selecionado,))
-        rows = cur.fetchall()
-        cur.close()
-
-        # Formatar os resultados em uma lista de dicionários
-        return [
-            {
-                "group_name": row[0],
-                "cod_customer": row[1],
-                "num_comentarios": row[2],
-                "ranking": row[3]
-            }
-            for row in rows
-        ]
-
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(f"Erro ao realizar consulta: {error}")
-        if conn:
-            conn.rollback()
-        return []
-
-def consulta_g_layout():
-    return dbc.Container(
-        [
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Link(dbc.Button("Voltar", color="secondary", size="sm"), href="/"),
-                        width=2,
-                        style={"textAlign": "left"}
-                    ),
-                    dbc.Col(
-                        html.H1(
-                            "Consulta G - Top 10 Clientes por Grupo de Produto", 
-                            style={"margin-bottom": "2rem", "margin-top": "1rem"}
-                        ),
-                        width=8,
-                        style={"textAlign": "center"}
-                    ),
-                ],
-                className="mt-4 mb-4"
-            ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dcc.Dropdown(
-                            id="dropdown-grupo-g",
-                            options=carregar_grupos(),  # Função que carrega os grupos para o dropdown
-                            placeholder="Selecione um grupo de produtos",
-                        ),
-                        width=6
-                    ),
-                ],
-                justify="center",
-                className="mb-4"
-            ),
-            html.Div(id="tabela-clientes-g")
-        ]
-    )
-
-@app.callback(
-    Output("tabela-clientes-g", "children"),
-    Input("dropdown-grupo-g", "value")
-)
-def mostrar_clientes_g(grupo_selecionado):
-    if grupo_selecionado:
-        clientes = consulta_g(grupo_selecionado)
-
-        if not clientes:
-            return html.P(f"Nenhum cliente encontrado para o grupo {grupo_selecionado}.", style={"textAlign": "center", "color": "red"})
-
-        # Exibir os resultados em uma tabela
-        tabela = dbc.Table(
-            [
-                html.Thead(
-                    html.Tr([html.Th("Nome do Grupo"), html.Th("Código do Cliente"), html.Th("Número de Comentários"), html.Th("Ranking")])
-                ),
-                html.Tbody([
-                    html.Tr([html.Td(cliente["group_name"]), html.Td(cliente["cod_customer"]), html.Td(cliente["num_comentarios"]), html.Td(cliente["ranking"])])
-                    for cliente in clientes
-                ])
-            ],
-            bordered=True,
-            hover=True,
-            responsive=True,
-            striped=True,
-        )
-
-        return tabela
-
-    return html.P("Selecione um grupo para ver os clientes.", style={"textAlign": "center"})
-
-
-# Página principal (dashboard com cards)
-def layout_principal():
-    return dbc.Container(
-        [
-            html.H1(
-                "Dashboard de Consultas Produtos Amazon", 
-                style={"textAlign": "center", "margin-bottom": "2.5rem", "margin-top": "1rem"}
-            ),
-
-            dbc.Row(
-                [
-                    dbc.Col(criarCard("Consulta A", "Produto", "5 comentários mais úteis e com maior avaliação e os 5 comentários mais úteis e com menor avaliação", "Consultar", "/consulta-a"), xs=12, sm=6, md=4, lg=3, className="mb-4"),
-                    dbc.Col(criarCard("Consulta B", "Produto", "Produtos similares com maiores vendas do que o produto fornecido", "Consultar", "/consulta-b"), xs=12, sm=6, md=4, lg=3, className="mb-4"),
-                    dbc.Col(criarCard("Consulta C", "Produto", "Evolução diária das médias de avaliação ao longo do intervalo de tempo do arquivo de entrada", "Consultar", "/consulta-c"), xs=12, sm=6, md=4, lg=3, className="mb-4"),
-                    dbc.Col(criarCard("Consulta D", "Listagem", "10 produtos líderes de venda em cada grupo de produtos", "Consultar", "/consulta-d"), xs=12, sm=6, md=4, lg=3, className="mb-4"),
-                ],
-                className="g-4",
-            ),
-            dbc.Row(
-                [
-                    dbc.Col(criarCard("Consulta E", "Listagem", "10 produtos com a maior média de avaliações úteis positivas por produto", "Consultar", "/consulta-e"), xs=12, sm=6, md=4, lg=3, className="mb-4"),
-                    dbc.Col(criarCard("Consulta F", "Listagem", "5 categorias de produto com a maior média de avaliações úteis positivas por produto", "Consultar", "/consulta-f"), xs=12, sm=6, md=4, lg=3, className="mb-4"),
-                    dbc.Col(criarCard("Consulta G", "Listagem", "10 clientes que mais fizeram comentários por grupo de produto", "Consultar", "/consulta-g"), xs=12, sm=6, md=4, lg=3, className="mb-4"),
-                ],
-                className="g-4",
-            ),
-        ],
-        fluid=True 
-    )
-
-# Callback para alternar entre as páginas
-@app.callback(
-    Output('page-content', 'children'),
-    Input('url', 'pathname')
-)
-
-def display_page(pathname):
-    if pathname == '/consulta-a':
-        return consulta_a_layout()
-    elif pathname == '/consulta-b':
-        return consulta_b_layout()
-    elif pathname == '/consulta-c':
-        return consulta_c_layout()
-    elif pathname == '/consulta-d':
-        return consulta_d_layout()
-    elif pathname == '/consulta-e':
-        return consulta_e_layout()
-    elif pathname == '/consulta-f':
-        return consulta_f_layout()
-    elif pathname == '/consulta-g':
-        return consulta_g_layout()
     else:
-        return layout_principal()
+        print("Nenhum resultado encontrado.")
+    
+    print("-" * 80)
 
-# Layout da aplicação com controle de navegação
-app.layout = dbc.Container(
-    [
-        dcc.Location(id='url', refresh=False),
-        html.Div(id='page-content')
-    ],
-    fluid=True
-)
+# Função para formatar o resultado da consulta F
+def formatarResultadoF(resultado):
+    """Formata e exibe as 5 categorias com a maior média de avaliações úteis positivas."""
+    
+    # Verifica se há resultados
+    if not resultado:
+        print("Nenhum resultado encontrado.")
+        return
+
+    # Define os cabeçalhos da tabela
+    headers = ["ID Categoria", "Nome da Categoria", "Média de Avaliações Úteis"]
+
+    # Formata os dados para a tabela
+    tabela = [
+        [row[1], row[0], row[2]]  # row[1] = ID, row[0] = Nome da categoria, row[2] = Média útil
+        for row in resultado
+    ]
+
+    # Exibe a tabela formatada com 'tabulate'
+    print(tabulate(tabela, headers, tablefmt="fancy_grid"))
+
+    # Exibe uma linha de separação final
+    print("-" * 80)
+
+# Função para formatar o resultado da consulta G
+def formatarResultadoG(resultado):
+    """Formata e exibe a tabela dos 10 principais clientes por grupo de produto usando tabulate."""
+    
+    grupo_atual = None
+    tabela_dados = []
+
+    # Itera sobre o resultado da consulta
+    for row in resultado:
+        id_grupo = row[1]  # O ID do grupo
+        id_usuario = row[0]  # O ID do usuário
+        qntd_comentarios = row[2]  # Quantidade de comentários
+        ranking = row[3]  # O ranking do cliente no grupo
+
+        # Se o grupo mudou, imprime a tabela para o grupo anterior (se houver) e reinicia a tabela
+        if id_grupo != grupo_atual:
+            if grupo_atual is not None:
+                # Exibe a tabela do grupo anterior
+                print(tabulate(tabela_dados, headers=["ID Usuário", "ID Grupo", "Quantidade de Comentários", "Ranking"], tablefmt="fancy_grid"))
+                print("-" * 80)
+
+            # Atualiza o nome do grupo atual e limpa os dados da tabela
+            grupo_atual = id_grupo
+            tabela_dados = []
+
+            # Exibe o cabeçalho para o novo grupo
+            print(f"\n10 principais clientes que comentaram no grupo {id_grupo}")
+            print("-" * 80)
+
+        # Adiciona os dados do usuário atual à lista de dados
+        tabela_dados.append([id_usuario, id_grupo, qntd_comentarios, ranking])
+
+    # Exibe a última tabela após o loop, se houver dados
+    if tabela_dados:
+        print(tabulate(tabela_dados, headers=["ID Usuário", "ID Grupo", "Quantidade de Comentários", "Ranking"], tablefmt="fancy_grid"))
+        print("-" * 80)
+
+# Função para executar a consulta A
+def consultaA():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar os 5 comentários mais úteis e com maior avaliação e  \nos 5 comentários mais úteis e com menor avaliação')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    idProduct = input('Digite o id do produto: ')
+    print("\n------------------------------------------------------------------------------------\n")
+
+    # Executar a consulta 'a' (maiores e menores avaliações)
+    resultadoA = query(dashboard_query['a'], (idProduct, idProduct))
+
+    if resultadoA:
+        # Formatar e exibir os resultados da consulta 'a'
+        formatarResultadoA(resultadoA)
+    else:
+        print("Nenhum resultado encontrado para o produto " + idProduct + ".")
+
+# Função para executar a consulta B
+def consultaB():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar os produtos similares com maiores vendas do que ele')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    idProduct = input('Digite o id do produto: ')
+    print("\n------------------------------------------------------------------------------------\n")
+
+    # Executar a consulta 'b'
+    resultadoB = query(dashboard_query['b'], (idProduct,))
+
+    if resultadoB:
+        # Formatar e exibir os resultados da consulta 'b'
+        formatarResultadoB(resultadoB, idProduct)
+    else:
+        print("Nenhum resultado encontrado para o produto " + idProduct + ".")
+
+# Função para executar a consulta C
+def consultaC():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Mostrar a evolução diária das médias de avaliação ao longo do intervalo de tempo \ncoberto no arquivo de entrada')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    idProduct = input('Digite o id do produto: ')
+    print("\n------------------------------------------------------------------------------------\n")
+
+    # Executar a consulta 'c'
+    resultadoC = query(dashboard_query['c'], (idProduct,))
+
+    if resultadoC:
+        # Formatar e exibir os resultados da consulta 'c'
+        formatarResultadoC(resultadoC, idProduct)
+    else:
+        print(f"Nenhuma avaliação encontrada para o produto {idProduct}.")
+
+# Função para executar a consulta D
+def consultaD():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar os 10 produtos líderes de venda em cada grupo de produtos')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    # Executar a consulta 'D'
+    resultadoD = query(dashboard_query['d'])
+
+    formatarResultadoD(resultadoD)
+
+# Função para executar a consulta E
+def consultaE():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar os 10 produtos com a maior média de avaliações úteis positivas por produto')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    # Executar a consulta 'E'
+    resultadoE = query(dashboard_query['e'])
+
+    formatarResultadoE(resultadoE)
+
+# Função para executar a consulta F
+def consultaF():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar a 5 categorias de produto com a maior média de avaliações úteis positivas por produto')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    # Executar a consulta 'F'
+    resultadoF = query(dashboard_query['f'])
+
+    formatarResultadoF(resultadoF)
+
+# Função para executar a consulta G
+def consultaG():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar os 10 clientes que mais fizeram comentários por grupo de produto')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    # Executar a consulta 'G'
+    resultadoG = query(dashboard_query['g'])
+
+    formatarResultadoG(resultadoG)
+
+# Executar Opções
+def executarConsulta(opcao):
+    funcaoOpcao = None
+
+    if opcao == 'a':
+        funcaoOpcao = consultaA
+    elif opcao == 'b':
+        funcaoOpcao = consultaB
+    elif opcao == 'c':
+        funcaoOpcao = consultaC
+    elif opcao == 'd':
+        funcaoOpcao = consultaD
+    elif opcao == 'e':
+        funcaoOpcao = consultaE
+    elif opcao == 'f':
+        funcaoOpcao = consultaF
+    elif opcao == 'g':
+        funcaoOpcao = consultaG
+    elif opcao == 'x':
+        exit()
+
+    clearTerminal()
+    funcaoOpcao()
+
+    loopOpcao = input(mensagemVoltar)
+    while loopOpcao != 'v':
+        if loopOpcao == 'v':
+            break 
+        elif loopOpcao == 'x':
+            exit()
+        else:
+            loopOpcao = input('Opção inválida, digite novamente: ')
+
+# Função para verificar opções válidas
+def opcaoValida(opcao):
+    return (opcao == 'a' or opcao == 'b' or opcao == 'c' or opcao == 'd' or opcao == 'e'
+            or opcao == 'f' or opcao == 'g' or opcao == 'x')
 
 # Função principal
 def main():
     global conn
     conn = conectarAoBanco()
-    if conn:
-        # Crie o esquema e processe o arquivo se necessário
-        print("Banco de dados pronto para consultas.")
-    else:
-        print("Falha ao conectar ao banco.")
 
-# Rodar a aplicação
+    if conn is None:
+        return
+
+    try:
+        while True:  # Loop principal para sempre voltar ao menu
+            print("\n------------------------------------------------------------------------------------\n")
+            print("Bem-vindo ao Dashboard :)")
+            print("\n------------------------------------------------------------------------------------\n")
+            print('Escolha uma das opções abaixo:')
+            print('''a) Listar os 5 comentários mais úteis e com maior avaliação e os 5 comentários mais úteis e com menor avaliação;''')
+            print('''b) Listar os produtos similares com maiores vendas do que ele;''')
+            print('''c) Mostrar a evolução diária das médias de avaliação ao longo do intervalo de tempo coberto no arquivo de entrada;''')
+            print('''d) Listar os 10 produtos líderes de venda em cada grupo de produtos;''')
+            print('''e) Listar os 10 produtos com a maior média de avaliações úteis positivas por produto;''')
+            print('''f) Listar a 5 categorias de produto com a maior média de avaliações úteis positivas por produto;''')
+            print('''g) Listar os 10 clientes que mais fizeram comentários por grupo de produto.''')
+            print('''x) Sair do programa.''')
+
+            opcao = input('Digite a opção desejada: ')
+
+            while not opcaoValida(opcao):
+                opcao = input('Opção inválida, digite novamente: ')
+
+            # Quando a opção for válida, chamamos a função para executar a consulta
+            if opcao == 'x':
+                break
+            else:
+                executarConsulta(opcao)
+
+    finally:
+        # Fechar a conexão ao encerrar o programa
+        if conn:
+            conn.close()
+            print("Conexão com o banco de dados encerrada.")
+
 if __name__ == '__main__':
     main()
-    app.run_server(debug=True)
