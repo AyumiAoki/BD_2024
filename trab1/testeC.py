@@ -1,5 +1,6 @@
 import psycopg2
 import os
+from tabulate import tabulate
 
 # Variáveis Globais
 mensagemVoltar = 'Digite (v) para voltar e (x) para sair: '
@@ -25,11 +26,11 @@ dashboard_query = {
         """,
 
     'b': """
-                SELECT similares .*
+                SELECT produtoSimilares .*
                 FROM produto p
-                JOIN similares ps ON ps.productasin = p.asin
-                JOIN produto similares ON similares.asin = ps.similarproductasin
-                WHERE similares.salesrank < p.salesrank AND p.asin = %s;
+                JOIN similares ps ON ps.asinpai = p.asin
+                JOIN produto produtoSimilares ON produtoSimilares.asin = ps.asinsimilar
+                WHERE produtoSimilares.salesrank < p.salesrank AND p.id = %s;
              """,
 
     'c': """
@@ -185,10 +186,34 @@ def formatarResultadoA(resultado):
         print(estrelas)
         print(f"{helpful} pessoas acharam isso útil\n")
 
+from tabulate import tabulate
+
+def formatarResultadoB(resultado, idProduct):
+    """Formata o resultado da consulta no formato desejado usando tabulate."""
+    
+    print(f"O produto {idProduct} tem os seguintes similares com rank maior que o seu:\n")
+    
+    # Preparar os dados para exibição
+    headers = ['ID', 'Nome', 'Classificação']
+    tabela_dados = []
+
+    # Iterar sobre o resultado (produtos similares) e preparar os dados
+    for row in resultado:
+        id_produto = row[0]
+        nome_produto_similar = row[2]
+        salesrank_produto_similar = row[3]
+
+        # Adicionar os dados à tabela
+        tabela_dados.append([id_produto, nome_produto_similar, salesrank_produto_similar])
+
+    # Exibir a tabela formatada
+    print(tabulate(tabela_dados, headers=headers, tablefmt="fancy_grid"))
+    print("\n")
+
 # Função para executar a consulta A
 def consultaA():
     print("\n------------------------------------------------------------------------------------\n")
-    print('Listar os 5 comentários mais úteis e com maior avaliação e  \nos 5 comentários mais úteis e com menor avaliação;')
+    print('Listar os 5 comentários mais úteis e com maior avaliação e  \nos 5 comentários mais úteis e com menor avaliação')
     print("\n------------------------------------------------------------------------------------\n")
     
     idProduct = input('Digite o id do produto: ')
@@ -203,6 +228,24 @@ def consultaA():
     else:
         print("Nenhum resultado encontrado para o produto " + idProduct + ".")
 
+# Função para executar a consulta A
+def consultaB():
+    print("\n------------------------------------------------------------------------------------\n")
+    print('Listar os produtos similares com maiores vendas do que ele')
+    print("\n------------------------------------------------------------------------------------\n")
+    
+    idProduct = input('Digite o id do produto: ')
+    print("\n------------------------------------------------------------------------------------\n")
+
+    # Executar a consulta 'b'
+    resultadoB = query(dashboard_query['b'], (idProduct,))
+
+    if resultadoB:
+        # Formatar e exibir os resultados da consulta 'a'
+        formatarResultadoB(resultadoB, idProduct)
+    else:
+        print("Nenhum resultado encontrado para o produto " + idProduct + ".")
+
 # Executar Opções
 def executarConsulta(opcao):
     funcaoOpcao = None
@@ -210,7 +253,7 @@ def executarConsulta(opcao):
     if opcao == 'a':
         funcaoOpcao = consultaA
     elif opcao == 'b':
-        funcaoOpcao = consultaA()
+        funcaoOpcao = consultaB
     elif opcao == 'c':
         funcaoOpcao = consultaA()
     elif opcao == 'd':
