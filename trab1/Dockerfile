@@ -6,4 +6,3 @@ WORKDIR /trab1
 
 # Instalar a biblioteca psycopg2 diretamente no container
 RUN pip install psycopg2
-
