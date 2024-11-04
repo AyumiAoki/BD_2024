@@ -7,6 +7,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include "bplustree.h"
 
 using namespace std;
 
@@ -20,7 +21,17 @@ using namespace std;
 void seek1(int ID) {
     cout << "Buscando registro no índice primário com ID: " << ID << endl;
 
-    // Simulação da busca e contagem de blocos lidos.
+    BPlusTree tree;
+
+    tree.loadFromCSV("bplustree.dat");
+    // Realizar busca por ID
+    Article result;
+    int searchID = 1;
+    if (tree.searchByID(ID, result)) {
+        cout << "Encontrado ID " << ID << ": " << result.title << endl;
+    } else {
+        cout << "ID " << ID << " não encontrado." << endl;
+    }
 }
 
 int main(int argc, char* argv[]) {
