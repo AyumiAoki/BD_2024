@@ -7,6 +7,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include "bplustree.h"
 
 using namespace std;
 
@@ -20,7 +21,18 @@ using namespace std;
 void seek2(const string& Titulo) {
     cout << "Buscando registro no índice secundário com Título: " << Titulo << endl;
 
-    // Simulação da busca e contagem de blocos lidos.
+    BPlusTree tree;
+
+    tree.loadFromCSV("bplustree.dat");
+
+    Article result;
+    // Realizar busca por Título
+    //string searchTitle = "Poster: 3D sketching and flexible input for surface design: A case study.";
+    if (tree.searchByTitle(Titulo, result)) {
+        cout << "Encontrado Título '" << Titulo << "': " << result.title << endl;
+    } else {
+        cout << "Título '" << Titulo << "' não encontrado." << endl;
+    }
 }
 
 int main(int argc, char* argv[]) {
