@@ -15,6 +15,7 @@
 #include "./cabecalho/tabelaHash.cpp"
 #include "./cabecalho/bplustree.h"
 
+
 int posBlocks[NUM_BUCKETS] = {0};
 int numRowBucket[NUM_BUCKETS] = {0};
 int tamListBlocks[NUM_BUCKETS] = {0};
