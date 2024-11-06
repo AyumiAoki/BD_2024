@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <cstring>
 #include "./cabecalho/tabelaHash.cpp"
-#include "./cabecalho/bplustree.h"
 
 
 int posBlocks[NUM_BUCKETS] = {0};
@@ -267,11 +266,6 @@ int main(int argc, char *argv[]) {
 
     // Chama a função para analisar o arquivo
     analisarArquivo(argv[1]);
-
-    BPlusTree tree;
-
-    // Carregar dados do arquivo CSV
-    tree.loadFromCSV(argv[1]);
     
     // Fecha o arquivo
     arquivo.close();

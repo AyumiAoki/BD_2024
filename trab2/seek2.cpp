@@ -19,20 +19,7 @@ using namespace std;
  * @param Titulo Título do registro a ser buscado
  */
 void seek2(const string& Titulo) {
-    cout << "Buscando registro no índice secundário com Título: " << Titulo << endl;
-
-    BPlusTree tree;
-
-    tree.loadFromCSV("bplustree.dat");
-
-    Article result;
-    // Realizar busca por Título
-    //string searchTitle = "Poster: 3D sketching and flexible input for surface design: A case study.";
-    if (tree.searchByTitle(Titulo, result)) {
-        cout << "Encontrado Título '" << Titulo << "': " << result.title << endl;
-    } else {
-        cout << "Título '" << Titulo << "' não encontrado." << endl;
-    }
+    
 }
 
 int main(int argc, char* argv[]) {
